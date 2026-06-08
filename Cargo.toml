@@ -1,0 +1,100 @@
+[package]
+name = "vpn-jumphost"
+version = "0.2.0"
+edition = "2021"
+description = "VPN jumphost: OpenConnect+ocproxy supervisor, routing SOCKS5 proxy, PAC server, and F5 cookie management (pure Rust, no Python)."
+
+[[bin]]
+name = "jumphost"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+thiserror = "2"
+tokio = {
+  version = "1",
+  features = [
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+  ]
+}
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = {
+  version = "0.3",
+  features = ["ansi", "chrono", "env-filter"]
+}
+
+# HTTP client for cookie validation (no redirect-follow, rustls).
+reqwest = {
+  version = "0.13",
+  default-features = false,
+  features = ["rustls"],
+}
+
+bytes = "1"
+chromiumoxide = {
+  version = "0.9",
+  default-features = false,
+}
+futures-util = "0.3"
+http-body-util = "0.1"
+# Minimal HTTP/1.1 server for the PAC endpoint.
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+
+notify-rust = "4"
+
+# UNIX-specific bits (signals, fork/exec, etc.).
+nix = { version = "0.31", features = ["process", "signal"] }
+
+# Resolve $HOME / $XDG_STATE_HOME and other dirs.
+directories = "6"
+
+serde = { version = "1", features = ["derive"] }
+
+# Pretty time-stamped log lines like the old jumphost.py format.
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
+toml = "1"
+
+# Linux-only: D-Bus client for logind PrepareForSleep signal.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+# macOS-only: Cocoa bindings for NSWorkspaceDidWakeNotification.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.5"
+objc2 = "0.5"
+objc2-app-kit = {
+  version = "0.2",
+  features = [
+    "NSResponder",
+    "NSWorkspace",
+  ]
+}
+objc2-foundation = {
+  version = "0.2",
+  features = [
+    "NSDate",
+    "NSNotification",
+    "NSObjCRuntime",
+    "NSObject",
+    "NSOperation",
+    "NSRunLoop",
+    "NSString",
+    "NSThread",
+    "block2",
+  ]
+}
+
+[profile.release]
+strip = true
+lto = true

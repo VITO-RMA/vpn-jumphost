@@ -1,0 +1,25 @@
+proxy.pac
+
+# Macos
+.DS_Store
+
+# C extensions
+*.so
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+
+# Rust build artifacts (Cargo.lock is committed for reproducible builds)
+/target
+
+# devenv state
+.devenv
+
