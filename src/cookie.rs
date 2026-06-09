@@ -157,7 +157,8 @@ impl Default for FetchOptions {
             chromium_path: std::env::var("CHROMIUM_PATH")
                 .ok()
                 .or_else(|| std::env::var("CHROME").ok())
-                .map(PathBuf::from),
+                .map(PathBuf::from)
+                .or_else(crate::config::config_file_chromium_path),
             headless: false,
             stop: CancellationToken::new(),
         }
