@@ -127,6 +127,7 @@ nix run github:USER/REPO
 - [Running the services with devenv](docs/run.md)
 - [PAC files and local proxies](docs/pac.md)
 - [SSH via `ProxyCommand` and OpenSSH config](docs/ssh.md)
+- [Arch Linux package](docs/arch.md)
 
 **Mermaid diagrams:** Several docs use fenced `mermaid` code blocks. [GitHub renders them](https://github.blog/changelog/2022-02-14-add-new-mermaid-diagrams-and-markdown-expansions-to-gists/) when you view Markdown in the browser. For **Cursor / VS Code**, open the Markdown preview and install the workspace-recommended **Markdown Preview Mermaid Support** extension (see [`.vscode/extensions.json`](.vscode/extensions.json)).
 

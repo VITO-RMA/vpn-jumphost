@@ -1,0 +1,15 @@
+[Unit]
+Description=VPN jumphost (openconnect + ocproxy, supervised)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/jumphost run --serve-pac
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

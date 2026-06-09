@@ -1,0 +1,38 @@
+# Maintainer: VPN Jumphost contributors
+pkgname=vpn-jumphost
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='VPN jumphost: OpenConnect+ocproxy supervisor with routing SOCKS5 proxy, PAC server, and cookie management'
+arch=('x86_64' 'aarch64')
+url='https://github.com/USER/vpn-jumphost'
+license=('custom')
+depends=('openconnect' 'ocproxy' 'chromium' 'gcc-libs')
+makedepends=('cargo')
+install=vpn-jumphost.install
+backup=()
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/../.."
+  cargo build --release --locked
+}
+
+package() {
+  cd "$startdir/../.."
+
+  # Binary
+  install -Dm755 target/release/jumphost "$pkgdir/usr/bin/jumphost"
+
+  # systemd user unit
+  install -Dm644 contrib/archlinux/vpn-jumphost.service "$pkgdir/usr/lib/systemd/user/vpn-jumphost.service"
+
+  # Example config
+  install -Dm644 docs/config.example.toml "$pkgdir/usr/share/vpn-jumphost/config.example.toml"
+
+  # Documentation
+  install -Dm644 README.md "$pkgdir/usr/share/doc/vpn-jumphost/README.md"
+  install -Dm644 spec.md "$pkgdir/usr/share/doc/vpn-jumphost/spec.md"
+  install -Dm644 docs/architecture.md "$pkgdir/usr/share/doc/vpn-jumphost/architecture.md"
+  install -Dm644 docs/ssh.md "$pkgdir/usr/share/doc/vpn-jumphost/ssh.md"
+}

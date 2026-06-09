@@ -1,0 +1,58 @@
+post_install() {
+  echo ""
+  echo "══════════════════════════════════════════════════════════════"
+  echo "  vpn-jumphost installed"
+  echo "══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "  1. Copy the example config and edit it:"
+  echo "       mkdir -p ~/.config/vpn-jumphost"
+  echo "       cp /usr/share/vpn-jumphost/config.example.toml \\"
+  echo "          ~/.config/vpn-jumphost/config.toml"
+  echo ""
+  echo "  2. Enable and start the systemd user service:"
+  echo "       systemctl --user daemon-reload"
+  echo "       systemctl --user enable --now vpn-jumphost.service"
+  echo ""
+  echo "  3. View logs:"
+  echo "       journalctl --user -u vpn-jumphost.service -f"
+  echo ""
+  echo "  Documentation: /usr/share/doc/vpn-jumphost/"
+  echo "══════════════════════════════════════════════════════════════"
+  echo ""
+}
+
+post_upgrade() {
+  echo ""
+  echo "══════════════════════════════════════════════════════════════"
+  echo "  vpn-jumphost upgraded to $1"
+  echo "══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "  Restart the service to pick up the new version:"
+  echo "       systemctl --user restart vpn-jumphost.service"
+  echo ""
+  echo "  Check /usr/share/vpn-jumphost/config.example.toml for any"
+  echo "  new configuration options."
+  echo "══════════════════════════════════════════════════════════════"
+  echo ""
+}
+
+pre_remove() {
+  if systemctl --user is-active vpn-jumphost.service &>/dev/null; then
+    echo "Stopping vpn-jumphost.service..."
+    systemctl --user stop vpn-jumphost.service
+  fi
+  if systemctl --user is-enabled vpn-jumphost.service &>/dev/null; then
+    echo "Disabling vpn-jumphost.service..."
+    systemctl --user disable vpn-jumphost.service
+  fi
+}
+
+post_remove() {
+  echo ""
+  echo "  vpn-jumphost removed."
+  echo "  User config and state files remain at:"
+  echo "    ~/.config/vpn-jumphost/"
+  echo "    ~/.local/state/vpn-jumphost/"
+  echo "  Remove them manually if no longer needed."
+  echo ""
+}
