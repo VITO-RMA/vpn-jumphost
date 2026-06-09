@@ -1,0 +1,13 @@
+Package: vpn-jumphost
+Version: 0.2.0
+Architecture: amd64
+Maintainer: VPN Jumphost contributors <vpn-jumphost@users.noreply.github.com>
+Description: VPN jumphost: OpenConnect+ocproxy supervisor with routing SOCKS5 proxy, PAC server, and cookie management
+ A single-binary VPN jumphost that connects to an F5 BIG-IP APM VPN with
+ OpenConnect, exposes a routing SOCKS5 proxy with per-domain VPN-vs-direct
+ routing, serves a PAC file, and manages F5 session cookies via Chromium CDP.
+ Everything runs as a normal user — no sudo, no TUN device, no namespace.
+Depends: openconnect, ocproxy, chromium | chromium-browser
+Section: net
+Priority: optional
+Homepage: https://github.com/USER/vpn-jumphost

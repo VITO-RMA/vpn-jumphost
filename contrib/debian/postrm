@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    echo ""
+    echo "  vpn-jumphost removed."
+    echo "  User config and state files remain at:"
+    echo "    ~/.config/vpn-jumphost/"
+    echo "    ~/.local/state/vpn-jumphost/"
+    echo "  Remove them manually if no longer needed."
+    echo ""
+fi
+
+exit 0

@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
+    echo ""
+    echo "  NOTE: If you are running vpn-jumphost as a systemd user service,"
+    echo "  stop and disable it before removal completes:"
+    echo ""
+    echo "       systemctl --user stop vpn-jumphost.service"
+    echo "       systemctl --user disable vpn-jumphost.service"
+    echo ""
+    echo "  (dpkg runs as root and cannot manage per-user services automatically.)"
+    echo ""
+fi
+
+exit 0

@@ -1,0 +1,27 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    echo ""
+    echo "══════════════════════════════════════════════════════════════"
+    echo "  vpn-jumphost installed"
+    echo "══════════════════════════════════════════════════════════════"
+    echo ""
+    echo "  1. Copy the example config and edit it:"
+    echo "       mkdir -p ~/.config/vpn-jumphost"
+    echo "       cp /usr/share/vpn-jumphost/config.example.toml \\"
+    echo "          ~/.config/vpn-jumphost/config.toml"
+    echo ""
+    echo "  2. Enable and start the systemd user service:"
+    echo "       systemctl --user daemon-reload"
+    echo "       systemctl --user enable --now vpn-jumphost.service"
+    echo ""
+    echo "  3. View logs:"
+    echo "       journalctl --user -u vpn-jumphost.service -f"
+    echo ""
+    echo "  Documentation: /usr/share/doc/vpn-jumphost/"
+    echo "══════════════════════════════════════════════════════════════"
+    echo ""
+fi
+
+exit 0
