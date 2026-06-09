@@ -69,7 +69,7 @@ pub async fn validate_file(cookie_file: &Path) -> CookieStatus {
 /// gateway redirecting to the SSO login page means the cookie is expired,
 /// not valid.
 pub async fn validate_cookie(cookie: &str) -> CookieStatus {
-    let vpn_url = std::env::var("VPN_URL").unwrap_or_else(|_| DEFAULT_VPN_URL.to_string());
+    let vpn_url = config::env_string("VPN_URL", DEFAULT_VPN_URL);
     let probe_url = format!("{}{}", vpn_url.trim_end_matches('/'), COOKIE_PROBE_PATH);
 
     let client = match reqwest::Client::builder()
@@ -185,7 +185,12 @@ enum FetchOutcome {
 /// or other interactive prompt is detected, the headless browser is
 /// closed and relaunched in headed mode.
 pub async fn fetch(options: FetchOptions) -> Result<String> {
-    let vpn_url = std::env::var("VPN_URL").unwrap_or_else(|_| DEFAULT_VPN_URL.to_string());
+    let vpn_url = config::env_string("VPN_URL", DEFAULT_VPN_URL);
+    if vpn_url.is_empty() {
+        return Err(anyhow!(
+            "VPN_URL is not configured — set vpn_url in the config file or export VPN_URL"
+        ));
+    }
 
     let cookie = if options.headless {
         info!("attempting headless cookie fetch");

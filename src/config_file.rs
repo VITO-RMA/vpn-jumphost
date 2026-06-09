@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 
 use directories::BaseDirs;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Global parsed config file (loaded once at first access).
 static CONFIG: OnceLock<FileConfig> = OnceLock::new();
@@ -214,7 +214,7 @@ fn load() -> FileConfig {
 
     match toml::from_str::<FileConfig>(&contents) {
         Ok(cfg) => {
-            debug!(path = %path.display(), "loaded config file");
+            info!(path = %path.display(), "loaded config file");
             cfg
         }
         Err(e) => {
