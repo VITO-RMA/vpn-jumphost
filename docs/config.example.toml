@@ -5,7 +5,7 @@
 # defaults, so at minimum you must set `vpn_url` and `[domains]`.
 #
 # Precedence (highest → lowest):
-#   CLI flag  >  environment variable  >  config file  >  compiled-in default
+#   CLI flag  >  config file  >  compiled-in default
 #
 # Values that are commented out below match the compiled-in defaults.
 # Uncomment and change them only if you need a non-default value.
@@ -46,7 +46,7 @@ vpn_url = "https://byod.vito.be"
 # Defaults to $XDG_STATE_HOME/vpn-jumphost/chromium-profile.
 # browser_profile_dir = "/home/user/.local/state/vpn-jumphost/chromium-profile"
 
-# Path to a Chromium executable.  Also settable via $CHROMIUM_PATH.
+# Path to a Chromium executable.
 # chromium_path = "/usr/bin/chromium"
 
 # ── Routing proxy (defaults: 127.0.0.1:1081) ────────────────────────
@@ -83,7 +83,7 @@ direct = ["byod.vito.be"]
 #
 # When both username and password resolve to non-empty values, the
 # browser-based cookie fetch can pre-fill the SSO form automatically.
-# Precedence per field: env var > env var *_FILE > config value >
+# Precedence per field: VPN_USERNAME/VPN_PASSWORD env var > config value >
 # config *_file path.
 
 # [credentials]

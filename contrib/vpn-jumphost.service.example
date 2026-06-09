@@ -7,7 +7,7 @@
 #     login flow (`jumphost fetch-cookie`) when it expires,
 #   - starts openconnect with --script-tun --script "ocproxy ...",
 #   - serves the PAC file on 127.0.0.1:8091 (with `--serve-pac`),
-#   - re-checks the cookie at JUMPHOST_CHECK_INTERVAL seconds,
+#   - re-checks the cookie at the configured check_interval (default 300 s),
 #   - restarts openconnect if the cookie was refreshed,
 #   - detects laptop sleep/wake (logind PrepareForSleep signal on Linux,
 #     wall-clock fallback elsewhere) and re-validates immediately on wake.
@@ -56,16 +56,8 @@ WorkingDirectory=/CHANGE/ME/vpn-jumphost
 Environment=PATH=/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin
 
 # Optional knobs (uncomment to override defaults):
-# Environment=SOCKS_PORT=1080
-# Environment=PAC_SERVE_PORT=8091
-# Environment=PAC_SERVE_BIND=127.0.0.1
-# Environment=JUMPHOST_CHECK_INTERVAL=300
 # Environment=VPN_USERNAME=your.email@company.com
 # Environment=VPN_PASSWORD=...  # prefer EnvironmentFile= with mode 600
-# Environment=VPN_USERNAME_FILE=/var/run/secrets/vpn_user  # alternative: read credentials from files
-# Environment=VPN_PASSWORD_FILE=/var/run/secrets/vpn_pass  # (env vars take precedence over files)
-# Environment=CHROMIUM_PATH=/usr/bin/chromium
-# Environment=JUMPHOST_NO_HEADLESS=1  # disable headless cookie refresh; always open a visible browser window
 
 # Replace /CHANGE/ME with the absolute path to your checkout.
 ExecStart=/CHANGE/ME/vpn-jumphost/target/release/jumphost run --serve-pac

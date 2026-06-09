@@ -1,10 +1,9 @@
-//! Shared configuration: defaults, environment variables, state-dir paths.
+//! Shared configuration: defaults, config-file lookups, state-dir paths.
 //!
 //! All values mirror those used by the original Python `scripts/jumphost.py`
-//! so existing configuration (env vars, cookie files, log files) continues to
+//! so existing configuration (cookie files, log files) continues to
 //! work after the migration to Rust.
 
-use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -104,7 +103,7 @@ pub fn direct_domains() -> &'static [String] {
 /// State directory: `$XDG_STATE_HOME/vpn-jumphost/` (or
 /// `~/.local/state/vpn-jumphost/` if XDG_STATE_HOME is unset).
 pub fn state_dir() -> PathBuf {
-    if let Some(raw) = env::var_os("XDG_STATE_HOME") {
+    if let Some(raw) = std::env::var_os("XDG_STATE_HOME") {
         let p = PathBuf::from(raw);
         if !p.as_os_str().is_empty() {
             return p.join("vpn-jumphost");
@@ -118,23 +117,8 @@ pub fn state_dir() -> PathBuf {
 
 /// Default cookie file path: `<state_dir>/cookie`.
 ///
-/// Precedence: `VPN_COOKIE_FILE` env var > config file `cookie_file` >
-/// `<state_dir>/cookie`.
-///
-/// Mirrors the `$HOME` / `$XDG_STATE_HOME` literal-variable defense from
-/// `scripts/start-vpn.sh`: if `VPN_COOKIE_FILE` contains an unexpanded
-/// `$HOME` or `$XDG_STATE_HOME`, we ignore it and fall back.
+/// Precedence: config file `cookie_file` > `<state_dir>/cookie`.
 pub fn default_cookie_file() -> PathBuf {
-    if let Ok(raw) = env::var("VPN_COOKIE_FILE") {
-        if raw.contains("$HOME") || raw.contains("$XDG_STATE_HOME") {
-            tracing::warn!(
-                value = %raw,
-                "Ignoring VPN_COOKIE_FILE with unexpanded variable",
-            );
-        } else if !raw.is_empty() {
-            return PathBuf::from(raw);
-        }
-    }
     if let Some(ref path) = config_file::get().cookie_file {
         return path.clone();
     }
@@ -142,78 +126,34 @@ pub fn default_cookie_file() -> PathBuf {
 }
 
 /// Default persistent browser profile directory used by the cookie-fetch
-/// flow (mirrors `VPN_BROWSER_PROFILE_DIR` from `fetch-vpn-cookie.py`).
+/// flow.
 ///
-/// Precedence: env var > config file > default.
+/// Precedence: config file > default.
 pub fn default_browser_profile_dir() -> PathBuf {
-    if let Ok(raw) = env::var("VPN_BROWSER_PROFILE_DIR") {
-        if !raw.is_empty() && !raw.contains("$HOME") && !raw.contains("$XDG_STATE_HOME") {
-            return PathBuf::from(raw);
-        }
-    }
     if let Some(ref path) = config_file::get().browser_profile_dir {
         return path.clone();
     }
     state_dir().join("chromium-profile")
 }
 
-/// Resolve a string env var with a fallback: env var > config file > default.
-pub fn env_string(key: &str, default: &str) -> String {
-    if let Ok(val) = env::var(key) {
-        if !val.is_empty() {
-            return val;
-        }
-    }
-    // Check config file for a matching key.
+/// Resolve a string config value: config file > compiled-in default.
+pub fn cfg_string(key: &str, default: &str) -> String {
     if let Some(val) = config_file_string(key) {
         return val;
     }
     default.to_string()
 }
 
-/// Resolve an integer env var with a fallback: env var > config file > default.
-/// Invalid values log a warning and return the default.
-pub fn env_u16(key: &str, default: u16) -> u16 {
-    match env::var(key) {
-        Ok(raw) => match raw.parse::<u16>() {
-            Ok(v) => return v,
-            Err(_) => {
-                tracing::warn!(
-                    key = %key,
-                    value = %raw,
-                    default = default,
-                    "invalid integer; using default"
-                );
-                return default;
-            }
-        },
-        Err(_) => {}
-    }
-    // Check config file.
+/// Resolve a u16 config value: config file > compiled-in default.
+pub fn cfg_u16(key: &str, default: u16) -> u16 {
     if let Some(v) = config_file_u16(key) {
         return v;
     }
     default
 }
 
-/// Resolve a u32 env var with a fallback: env var > config file > default.
-pub fn env_u32(key: &str, default: u32) -> u32 {
-    match env::var(key) {
-        Ok(raw) => match raw.parse::<u32>() {
-            Ok(v) => return v,
-            Err(_) => {
-                tracing::warn!(
-                    key = %key,
-                    value = %raw,
-                    default = default,
-                    "invalid integer; using default"
-                );
-                return default;
-            }
-        },
-        Err(_) => {}
-    }
-    // Check config file.
+/// Resolve a u32 config value: config file > compiled-in default.
+pub fn cfg_u32(key: &str, default: u32) -> u32 {
     if let Some(v) = config_file_u32(key) {
         return v;
     }
@@ -243,19 +183,17 @@ pub struct VpnCredentials {
 /// Resolve VPN credentials with the following precedence:
 ///
 /// 1. Environment variable (`VPN_USERNAME` / `VPN_PASSWORD`) — highest priority.
-/// 2. File contents (`VPN_USERNAME_FILE` / `VPN_PASSWORD_FILE`) — read the
-///    first line (trimmed) from the file at the given path.
-/// 3. Config file `[credentials]` table.
+/// 2. Config file `[credentials]` table.
 ///
 /// Returns `Some(VpnCredentials)` only when **both** username and password
 /// resolve to a non-empty value. Returns `None` otherwise.
 pub fn vpn_credentials() -> Option<VpnCredentials> {
-    let username = resolve_secret("VPN_USERNAME", "VPN_USERNAME_FILE", |c| {
+    let username = resolve_secret("VPN_USERNAME", |c| {
         c.credentials
             .as_ref()
             .map(|cr| (&cr.username, &cr.username_file))
     });
-    let password = resolve_secret("VPN_PASSWORD", "VPN_PASSWORD_FILE", |c| {
+    let password = resolve_secret("VPN_PASSWORD", |c| {
         c.credentials
             .as_ref()
             .map(|cr| (&cr.password, &cr.password_file))
@@ -272,38 +210,28 @@ pub fn vpn_credentials() -> Option<VpnCredentials> {
 
 /// Resolve a single secret value.
 ///
-/// Precedence: env var > env var *_FILE > config file value > config file
-/// *_file path.
-fn resolve_secret<F>(env_key: &str, file_env_key: &str, cfg_accessor: F) -> Option<String>
+/// Precedence: env var > config file value > config file *_file path.
+fn resolve_secret<F>(env_key: &str, cfg_accessor: F) -> Option<String>
 where
     F: FnOnce(&config_file::FileConfig) -> Option<(&Option<String>, &Option<PathBuf>)>,
 {
     // 1. Try the direct environment variable.
-    if let Ok(val) = env::var(env_key) {
+    if let Ok(val) = std::env::var(env_key) {
         if !val.is_empty() {
             return Some(val);
         }
     }
 
-    // 2. Try reading from the file path specified by the `*_FILE` env var.
-    if let Ok(path) = env::var(file_env_key) {
-        if !path.is_empty() {
-            if let Some(val) = read_secret_file(&path, file_env_key) {
-                return Some(val);
-            }
-        }
-    }
-
-    // 3. Try the config file.
+    // 2. Try the config file.
     let cfg = config_file::get();
     if let Some((direct_val, file_path)) = cfg_accessor(cfg) {
-        // 3a. Direct value in config.
+        // 2a. Direct value in config.
         if let Some(val) = direct_val {
             if !val.is_empty() {
                 return Some(val.clone());
             }
         }
-        // 3b. File path in config.
+        // 2b. File path in config.
         if let Some(path) = file_path {
             let path_str = path.display().to_string();
             if let Some(val) = read_secret_file(&path_str, "config_file") {
@@ -343,8 +271,8 @@ fn read_secret_file(path: &str, source: &str) -> Option<String> {
 
 // ── Config-file lookup helpers ────────────────────────────────────────────
 //
-// These map well-known env-var names to their corresponding field in the
-// config file. This keeps the `env_string` / `env_u16` / `env_u32` helpers
+// These map well-known config keys to their corresponding field in the
+// config file. This keeps the `cfg_string` / `cfg_u16` / `cfg_u32` helpers
 // generic while still honoring the TOML overrides.
 
 /// Look up a string value from the config file, keyed by the env-var name.

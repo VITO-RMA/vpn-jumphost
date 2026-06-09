@@ -6,9 +6,9 @@
 {
   # https://devenv.sh/basics/
   env = lib.optionalAttrs pkgs.stdenv.isLinux {
-    # Point the cookie-fetch flow at the nix-provided Chromium so it doesn't
+    # Point chromiumoxide at the nix-provided Chromium so it doesn't
     # try to auto-download Chrome at runtime. chromiumoxide picks this up
-    # via the `--chromium` CLI flag or the CHROMIUM_PATH env var.
+    # automatically from the CHROMIUM_PATH env var.
     # On macOS, Chromium is not available from nixpkgs — require a
     # system-installed Chrome/Chromium instead (chromiumoxide auto-detects it).
     CHROMIUM_PATH = "${pkgs.chromium}/bin/chromium";

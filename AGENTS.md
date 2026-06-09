@@ -29,7 +29,7 @@ This is a devenv-managed VPN jumphost implemented as a **single Rust binary** (`
 The whole runtime is two binaries (openconnect + ocproxy) plus the Rust supervisor that owns everything. openconnect is launched with `--script-tun --script "ocproxy ..."`:
 
 - **OpenConnect** — F5 protocol VPN client. Spawned by `src/vpn.rs` via `tokio::process::Command` with stdin redirected from the cookie file. With `--script-tun`, openconnect does **not** open a TUN device; it spawns ocproxy as a child and exchanges raw IP packets with it over a socketpair (fd passed to ocproxy via the `VPNFD` env var).
-- **ocproxy** — Userspace TCP/IP stack (lwIP) launched by openconnect as its `--script-tun` peer. Terminates the VPN's IP packets in user space and serves SOCKS5 on `127.0.0.1:${SOCKS_PORT}` (default 1080). Must **not** be passed `-g` (which would bind the SOCKS listener to all interfaces).
+- **ocproxy** — Userspace TCP/IP stack (lwIP) launched by openconnect as its `--script-tun` peer. Terminates the VPN's IP packets in user space and serves SOCKS5 on `127.0.0.1:1080`. Must **not** be passed `-g` (which would bind the SOCKS listener to all interfaces).
 - **Routing proxy task** — In-process tokio task implemented by `src/routing.rs`. SOCKS5 server on `127.0.0.1:1081` (always started) that applies per-domain routing rules: VPN-domain traffic is forwarded upstream to ocproxy (port 1080), everything else connects directly. This is the user-facing proxy — clients point at `socks5h://127.0.0.1:1081`. Domain lists live in `src/config.rs` as `PROXY_DOMAINS` and `DIRECT_DOMAINS` and are shared with the PAC generator, so the two cannot drift.
 - **PAC HTTP server task** — In-process tokio/hyper server implemented by `src/pac.rs`. Serves the generated PAC body on `127.0.0.1:8091` for any request path. Replaces the old `miniserve` + `pac-server-ctl.sh` combination.
 - **Cookie management** — `src/cookie.rs`. Validates via `reqwest` (rustls, redirects **disabled**), refreshes via `chromiumoxide` driving Chromium through the Chrome DevTools Protocol. No Node.js / Playwright driver needed. Persistent user-data-dir at `$XDG_STATE_HOME/vpn-jumphost/chromium-profile` for SSO/MFA reuse.
@@ -58,7 +58,7 @@ The only remaining shell script is [`scripts/jumphost-wizard.sh`](scripts/jumpho
 
 | Change | Files to update |
 |---|---|
-| New environment variable | The module that reads it (`src/config.rs` for shared defaults), `src/config_file.rs` (add corresponding TOML field), `src/main.rs` (CLI flag if applicable), `spec.md` (Configuration section: both Config File table and Environment Variables), relevant `docs/` page, `docs/config.example.toml` (if it should ship a default), `contrib/vpn-jumphost.service.example` (if a service-wide override is expected) |
+| New environment variable | Environment variables are not used for configuration (except `VPN_USERNAME` / `VPN_PASSWORD`). Use config file fields or CLI flags instead. |
 | New config file option | `src/config_file.rs` (struct field + TOML table), `src/config.rs` (lookup helper mapping), `spec.md` (Config File table), `README.md` (if user-visible) |
 | New port | The module that binds it (`src/vpn.rs`, `src/routing.rs`, `src/pac.rs`, …), `src/config.rs` (constant), `src/config_file.rs` (TOML field), `spec.md` (Port Allocation table + Config File table), `docs/run.md`, `docs/architecture.md`, `README.md` (Ports table), `docs/config.example.toml` (if it should ship a default) |
 | New `just` recipe | `justfile`, `README.md` (recipes list in Quick start), `spec.md` (Task Runner table) |

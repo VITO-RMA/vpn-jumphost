@@ -6,12 +6,12 @@ This document describes how the VPN jumphost fits together: the **F5 BIG-IP APM*
 
 | Piece | Role |
 | --- | --- |
-| **VPN portal** | The F5 BIG-IP APM web portal (configured via `VPN_URL`). You sign in in a browser and obtain a **session cookie** used to authenticate the VPN client. |
+| **VPN portal** | The F5 BIG-IP APM web portal (configured via `vpn_url`). You sign in in a browser and obtain a **session cookie** used to authenticate the VPN client. |
 | **F5** | The VPN front end is exposed as an **F5 BIG-IP APM**–style portal. OpenConnect speaks the **`f5`** protocol to that endpoint (not a generic SSL VPN profile). |
 | **`jumphost` binary** | Single Rust binary built from the repo root (`target/release/jumphost`). One process owns everything: cookie management, openconnect supervision, the routing proxy, and the PAC HTTP server. Subcommands: `run` (default), `fetch-cookie`, `validate-cookie`, `generate-pac`, `serve-pac`. |
 | **`src/vpn.rs`** | Spawns and supervises `openconnect` via `tokio::process::Command`, with `--script-tun --script "ocproxy …"`. openconnect does **not** open `/dev/net/tun`; it spawns ocproxy as its tunnel peer and exchanges raw IP packets over a socketpair. |
 | **ocproxy** | A userspace TCP/IP stack (lwIP) launched by openconnect. Terminates the VPN's IP packets in user space and serves SOCKS5 on `127.0.0.1:1080`. The routing proxy on port 1081 sits in front. |
-| **`src/config.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration (`src/config_file.rs`). **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy. All settings can be overridden via a TOML config file (`-c / --config FILE`, or `$XDG_CONFIG_HOME/vpn-jumphost/config.toml` by default; see [spec.md § Config File](../spec.md#config-file)). Precedence: CLI > env var > config file > compiled-in default. |
+| **`src/config.rs`** | Shared configuration: constants, config-file lookups, and TOML config file integration (`src/config_file.rs`). **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy. All settings can be overridden via a TOML config file (`-c / --config FILE`, or `$XDG_CONFIG_HOME/vpn-jumphost/config.toml` by default; see [spec.md § Config File](../spec.md#config-file)). Precedence: CLI > config file > compiled-in default. |
 | **`src/routing.rs`** | In-process SOCKS5 router (tokio task) on `127.0.0.1:1081`. Per-domain routing: forwards VPN-domain traffic upstream to ocproxy on `127.0.0.1:1080`, connects everything else directly. Always started by the supervisor. Domain lists are resolved via [`src/config.rs`](../src/config.rs) (config file override → compiled-in defaults) — the single source of truth shared with PAC generation. |
 | **`src/pac.rs`** | In-process PAC generator **and** an embedded tokio/hyper HTTP server on `127.0.0.1:8091` when `--serve-pac` is set. No external static-file server. |
 | **`src/cookie.rs`** | Cookie validation (reqwest + rustls, redirects disabled) and Chromium-based capture (`chromiumoxide` over the Chrome DevTools Protocol, persistent user-data-dir). No Node.js, no Playwright driver. |
@@ -57,7 +57,7 @@ flowchart LR
   OCP --> Intra
 
   subgraph Remote["VPN / Internet"]
-    BYOD["VPN portal\n(configured VPN_URL)"]
+    BYOD["VPN portal\n(configured vpn_url)"]
     Intra["Internal hosts\n(configured proxy domains)"]
     Internet["Public internet"]
   end
@@ -69,7 +69,7 @@ A standalone PAC server systemd unit (using `jumphost serve-pac`) is available f
 
 ## BYOD, F5 cookie, and OpenConnect
 
-You never type a password into OpenConnect: authentication is the **same session cookie** the BYOD portal would use for VPN. OpenConnect is started with **`--protocol=f5`** against the configured **`VPN_URL`**.
+You never type a password into OpenConnect: authentication is the **same session cookie** the BYOD portal would use for VPN. OpenConnect is started with **`--protocol=f5`** against the configured **`vpn_url`**.
 
 ```mermaid
 sequenceDiagram
@@ -89,9 +89,9 @@ sequenceDiagram
   Chromium->>Portal: HTTPS session
   Portal-->>Chromium: F5 session cookie (MRHSession)
   Chromium-->>JH: cookie via CDP cookies API
-  JH->>JH: write VPN_COOKIE_FILE (mode 600)
+  JH->>JH: write cookie file (mode 600)
   Wizard->>JH: exec just start → jumphost run
-  JH->>Cookie: validate VPN_COOKIE_FILE (HTTP GET, redirects off)
+  JH->>Cookie: validate cookie file (HTTP GET, redirects off)
   Cookie-->>JH: 2xx → valid
   JH->>OC: spawn openconnect --cookie-on-stdin (cookie via pipe)
   OC->>OCP: spawn with VPNFD + INTERNAL_IP4_* env vars
@@ -105,9 +105,9 @@ sequenceDiagram
 
 `devenv up` starts **one** process-compose process, `jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run --serve-pac`. The binary itself:
 
-- Validates the cookie file synchronously at startup (reqwest GET of `$VPN_URL/vdesk/vpn/index.php3?outform=xml`, redirects disabled — 2xx = valid, 3xx/404 = invalid, network error = unknown).
-- If invalid or missing, launches Chromium via `chromiumoxide` for an interactive refresh, writes the refreshed cookie to `$VPN_COOKIE_FILE` (mode 600), then proceeds.
-- Spawns `openconnect` with `tokio::process::Command`, passing `--protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D 1080 -k 60" "$VPN_URL"` and writing the cookie to its stdin.
+- Validates the cookie file synchronously at startup (reqwest GET of `<vpn_url>/vdesk/vpn/index.php3?outform=xml`, redirects disabled — 2xx = valid, 3xx/404 = invalid, network error = unknown).
+- If invalid or missing, launches Chromium via `chromiumoxide` for an interactive refresh, writes the refreshed cookie to `the cookie file` (mode 600), then proceeds.
+- Spawns `openconnect` with `tokio::process::Command`, passing `--protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D 1080 -k 60" the configured vpn_url` and writing the cookie to its stdin.
 - Concurrently spawns the routing proxy tokio task on `127.0.0.1:1081` and the PAC HTTP tokio task on `127.0.0.1:8091`.
 - Runs the supervisor monitor loop: periodic cookie revalidation, sleep/wake re-checks, and openconnect restart when the cookie was refreshed.
 

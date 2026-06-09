@@ -17,7 +17,7 @@ build:
     @echo "Built: {{ BIN }}"
 
 # Fetch the F5 MRHSession cookie via browser login (Chromium via CDP).
-# Saves the cookie to $VPN_COOKIE_FILE (default ~/.local/state/vpn-jumphost/cookie).
+# Saves the cookie to the configured cookie file (default ~/.local/state/vpn-jumphost/cookie).
 fetch-cookie:
     @cargo run --release --quiet -- fetch-cookie
 

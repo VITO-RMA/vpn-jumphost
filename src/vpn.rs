@@ -1,11 +1,10 @@
 //! OpenConnect + ocproxy process management.
 //!
 //! [`start`] spawns `openconnect --protocol=f5 --cookie-on-stdin
-//! --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}"
-//! $VPN_URL` with stdin redirected from the cookie file. Mirrors
-//! `scripts/start-vpn.sh` exactly: openconnect spawns ocproxy as its
-//! `--script-tun` peer (lwIP userspace stack), and ocproxy serves SOCKS5
-//! on `127.0.0.1:${SOCKS_PORT}`.
+//! --script-tun --script "ocproxy -D <socks_port> -k <keepalive>"
+//! <vpn_url>` with stdin redirected from the cookie file. openconnect
+//! spawns ocproxy as its `--script-tun` peer (lwIP userspace stack),
+//! and ocproxy serves SOCKS5 on `127.0.0.1:<socks_port>`.
 //!
 //! Termination: [`VpnProcess::stop`] sends SIGTERM and waits up to
 //! `timeout`; on timeout the process is SIGKILL'd. openconnect cleans up
@@ -25,7 +24,7 @@ use tokio::time::timeout;
 use tracing::{info, warn};
 
 use crate::config::{
-    env_string, env_u32, DEFAULT_OCPROXY_KEEPALIVE, DEFAULT_VPN_PROTOCOL, DEFAULT_VPN_URL,
+    cfg_string, cfg_u32, DEFAULT_OCPROXY_KEEPALIVE, DEFAULT_VPN_PROTOCOL, DEFAULT_VPN_URL,
 };
 
 /// Parameters captured at spawn time so [`VpnProcess`] can log them later.
@@ -126,9 +125,9 @@ pub fn start(cookie_file: &Path, socks_port: u16) -> Result<VpnProcess> {
         }
     }
 
-    let vpn_url = env_string("VPN_URL", DEFAULT_VPN_URL);
-    let vpn_protocol = env_string("VPN_PROTOCOL", DEFAULT_VPN_PROTOCOL);
-    let keepalive = env_u32("OCPROXY_KEEPALIVE", DEFAULT_OCPROXY_KEEPALIVE);
+    let vpn_url = cfg_string("VPN_URL", DEFAULT_VPN_URL);
+    let vpn_protocol = cfg_string("VPN_PROTOCOL", DEFAULT_VPN_PROTOCOL);
+    let keepalive = cfg_u32("OCPROXY_KEEPALIVE", DEFAULT_OCPROXY_KEEPALIVE);
 
     let script = format!("ocproxy -D {socks_port} -k {keepalive}");
     info!(

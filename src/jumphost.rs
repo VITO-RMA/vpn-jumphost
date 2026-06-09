@@ -72,7 +72,7 @@ pub struct Supervisor {
 
 impl Supervisor {
     pub fn new(options: SupervisorOptions) -> Self {
-        let socks_port = config::env_u16("SOCKS_PORT", DEFAULT_SOCKS_PORT);
+        let socks_port = config::cfg_u16("SOCKS_PORT", DEFAULT_SOCKS_PORT);
 
         Self {
             options,
@@ -131,8 +131,8 @@ impl Supervisor {
 
     async fn start_services(&self) -> Result<()> {
         {
-            let bind = config::env_string("ROUTING_PROXY_BIND", DEFAULT_ROUTING_PROXY_BIND);
-            let port = config::env_u16("ROUTING_PROXY_PORT", DEFAULT_ROUTING_PROXY_PORT);
+            let bind = config::cfg_string("ROUTING_PROXY_BIND", DEFAULT_ROUTING_PROXY_BIND);
+            let port = config::cfg_u16("ROUTING_PROXY_PORT", DEFAULT_ROUTING_PROXY_PORT);
             let upstream = self.socks_port;
             let shutdown = self.services_shutdown.clone();
             let handle = tokio::spawn(async move {
@@ -144,8 +144,8 @@ impl Supervisor {
         }
 
         if self.options.serve_pac {
-            let bind = config::env_string("PAC_SERVE_BIND", DEFAULT_PAC_BIND);
-            let port = config::env_u16("PAC_SERVE_PORT", DEFAULT_PAC_PORT);
+            let bind = config::cfg_string("PAC_SERVE_BIND", DEFAULT_PAC_BIND);
+            let port = config::cfg_u16("PAC_SERVE_PORT", DEFAULT_PAC_PORT);
             let shutdown = self.services_shutdown.clone();
             let handle = tokio::spawn(async move {
                 if let Err(e) = pac::serve(&bind, port, shutdown).await {

@@ -10,8 +10,8 @@
 //! The config file is optional — missing or unreadable files are silently
 //! ignored.
 //!
-//! Precedence (highest → lowest): CLI flag > environment variable > config
-//! file > compiled-in default constant.
+//! Precedence (highest → lowest): CLI flag > config file > compiled-in
+//! default constant.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -66,23 +66,23 @@ static CONFIG_PATH_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct FileConfig {
-    /// F5 VPN endpoint URL (mirrors `VPN_URL` env var).
+    /// F5 VPN endpoint URL.
     pub vpn_url: Option<String>,
-    /// OpenConnect protocol (mirrors `VPN_PROTOCOL` env var).
+    /// OpenConnect protocol.
     pub vpn_protocol: Option<String>,
-    /// ocproxy SOCKS5 listen port (mirrors `SOCKS_PORT` env var).
+    /// ocproxy SOCKS5 listen port.
     pub socks_port: Option<u16>,
-    /// ocproxy keepalive seconds (mirrors `OCPROXY_KEEPALIVE` env var).
+    /// ocproxy keepalive seconds.
     pub ocproxy_keepalive: Option<u32>,
-    /// Path to the cookie file (mirrors `VPN_COOKIE_FILE` env var).
+    /// Path to the cookie file.
     pub cookie_file: Option<PathBuf>,
-    /// Chromium user-data-dir (mirrors `VPN_BROWSER_PROFILE_DIR` env var).
+    /// Chromium user-data-dir.
     pub browser_profile_dir: Option<PathBuf>,
-    /// Supervisor check interval in seconds (mirrors `JUMPHOST_CHECK_INTERVAL`).
+    /// Supervisor check interval in seconds.
     pub check_interval: Option<f64>,
-    /// Never use headless mode (mirrors `JUMPHOST_NO_HEADLESS` env var).
+    /// Never use headless mode.
     pub no_headless: Option<bool>,
-    /// Chromium executable path (mirrors `CHROMIUM_PATH` env var).
+    /// Chromium executable path.
     pub chromium_path: Option<PathBuf>,
 
     /// Routing proxy settings.
@@ -101,9 +101,9 @@ pub struct FileConfig {
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct RoutingProxyConfig {
-    /// Bind address (mirrors `ROUTING_PROXY_BIND` env var).
+    /// Bind address.
     pub bind: Option<String>,
-    /// Listen port (mirrors `ROUTING_PROXY_PORT` env var).
+    /// Listen port.
     pub port: Option<u16>,
 }
 
@@ -111,9 +111,9 @@ pub struct RoutingProxyConfig {
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct PacServerConfig {
-    /// Bind address (mirrors `PAC_SERVE_BIND` env var).
+    /// Bind address.
     pub bind: Option<String>,
-    /// Listen port (mirrors `PAC_SERVE_PORT` env var).
+    /// Listen port.
     pub port: Option<u16>,
 }
 
@@ -121,11 +121,11 @@ pub struct PacServerConfig {
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct PacGenerateConfig {
-    /// Proxy host for PAC generation (mirrors `PAC_PROXY_HOST` env var).
+    /// Proxy host for PAC generation.
     pub proxy_host: Option<String>,
-    /// SOCKS5 port for PAC generation (mirrors `PAC_SOCKS_PORT` env var).
+    /// SOCKS5 port for PAC generation.
     pub socks_port: Option<String>,
-    /// Full proxy chain string (mirrors `PAC_PROXY_CHAIN` env var).
+    /// Full proxy chain string.
     pub proxy_chain: Option<String>,
 }
 
@@ -147,9 +147,9 @@ pub struct CredentialsConfig {
     pub username: Option<String>,
     /// VPN password (mirrors `VPN_PASSWORD` env var).
     pub password: Option<String>,
-    /// Path to username file (mirrors `VPN_USERNAME_FILE` env var).
+    /// Path to username file.
     pub username_file: Option<PathBuf>,
-    /// Path to password file (mirrors `VPN_PASSWORD_FILE` env var).
+    /// Path to password file.
     pub password_file: Option<PathBuf>,
 }
 

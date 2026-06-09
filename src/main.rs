@@ -25,7 +25,7 @@ use tracing::{error, info, warn};
 
 use crate::config::{
     config_file_check_interval, config_file_chromium_path, config_file_no_headless,
-    default_browser_profile_dir, default_cookie_file, env_u32, DEFAULT_CHECK_INTERVAL_SECS,
+    default_browser_profile_dir, default_cookie_file, DEFAULT_CHECK_INTERVAL_SECS,
 };
 use crate::cookie::{CookieStatus, FetchOptions};
 use crate::jumphost::{Supervisor, SupervisorOptions};
@@ -82,19 +82,17 @@ struct RunArgs {
     serve_pac: bool,
 
     /// Seconds between periodic cookie validity checks.
-    #[arg(long, env = "JUMPHOST_CHECK_INTERVAL", value_name = "SECONDS")]
+    #[arg(long, value_name = "SECONDS")]
     check_interval: Option<f64>,
 
-    /// Path to the F5 MRHSession cookie file. Defaults to
-    /// `$VPN_COOKIE_FILE` or `$XDG_STATE_HOME/vpn-jumphost/cookie`.
+    /// Path to the F5 MRHSession cookie file.
     #[arg(long, value_name = "PATH")]
     cookie_file: Option<PathBuf>,
 
     /// Disable headless cookie refresh. By default the supervisor uses
-    /// headless mode when `VPN_USERNAME` + `VPN_PASSWORD` are set. This
-    /// flag forces it to always open a visible browser window instead.
-    /// Use as an escape hatch if the headless flow is unstable.
-    #[arg(long, env = "JUMPHOST_NO_HEADLESS")]
+    /// headless mode when credentials are configured. This flag forces
+    /// it to always open a visible browser window instead.
+    #[arg(long)]
     no_headless: bool,
 }
 
@@ -109,8 +107,8 @@ struct FetchArgs {
     #[arg(long, value_name = "DIR")]
     profile_dir: Option<PathBuf>,
 
-    /// Path to a Chromium executable. Defaults to `$CHROMIUM_PATH`,
-    /// then `$CHROME`, then chromiumoxide's auto-detection.
+    /// Path to a Chromium executable. Uses chromiumoxide's
+    /// auto-detection if not specified.
     #[arg(long, value_name = "PATH")]
     chromium: Option<PathBuf>,
 
@@ -121,7 +119,7 @@ struct FetchArgs {
     /// Launch the browser in headless mode (no visible window). If an
     /// MFA/2FA prompt is detected, the browser is automatically
     /// relaunched with a visible window for user interaction.
-    #[arg(long, env = "JUMPHOST_HEADLESS")]
+    #[arg(long)]
     headless: bool,
 }
 
@@ -135,11 +133,11 @@ struct ValidateArgs {
 #[derive(Args, Debug, Clone)]
 struct ServePacArgs {
     /// Bind address.
-    #[arg(long, env = "PAC_SERVE_BIND", default_value = "127.0.0.1")]
+    #[arg(long, default_value = "127.0.0.1")]
     bind: String,
 
     /// Listen port.
-    #[arg(long, env = "PAC_SERVE_PORT", default_value_t = 8091)]
+    #[arg(long, default_value_t = 8091)]
     port: u16,
 }
 
@@ -201,30 +199,13 @@ async fn cmd_run(args: RunArgs) -> ExitCode {
     }
 
     let check_interval_s = args.check_interval.unwrap_or_else(|| {
-        // CLI flag not set — try env var, then config file, then default.
-        let from_env = env_u32(
-            "JUMPHOST_CHECK_INTERVAL",
-            DEFAULT_CHECK_INTERVAL_SECS as u32,
-        ) as f64;
-        // env_u32 already consults the config file, so `from_env` already
-        // reflects the config file value if no env var is set. But the
-        // config file stores this as an f64, so prefer the precise value
-        // when the env var is absent.
-        if std::env::var("JUMPHOST_CHECK_INTERVAL").is_err() {
-            config_file_check_interval().unwrap_or(from_env)
-        } else {
-            from_env
-        }
+        // CLI flag not set — try config file, then default.
+        config_file_check_interval().unwrap_or(DEFAULT_CHECK_INTERVAL_SECS as f64)
     });
     let check_interval = Duration::from_secs_f64(check_interval_s.max(1.0));
 
-    // Resolve no_headless: CLI flag > env var > config file.
     let no_headless = if args.no_headless {
         true
-    } else if std::env::var("JUMPHOST_NO_HEADLESS").is_ok() {
-        // clap already parsed the env var into args.no_headless, but it
-        // only sees truthy string values. Re-check.
-        args.no_headless
     } else {
         config_file_no_headless().unwrap_or(false)
     };
@@ -270,13 +251,7 @@ async fn cmd_fetch(args: FetchArgs) -> ExitCode {
         output: Some(output.clone()),
         profile_dir: Some(profile),
         max_wait: Duration::from_secs(args.max_wait),
-        chromium_path: args.chromium.or_else(|| {
-            std::env::var("CHROMIUM_PATH")
-                .ok()
-                .or_else(|| std::env::var("CHROME").ok())
-                .map(PathBuf::from)
-                .or_else(config_file_chromium_path)
-        }),
+        chromium_path: args.chromium.or_else(config_file_chromium_path),
         headless: args.headless,
         stop,
     };

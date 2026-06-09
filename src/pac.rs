@@ -5,9 +5,10 @@
 //!   This is the Rust port of the old `scripts/generate-pac.py`.
 //! - [`serve`] runs a tiny HTTP/1.1 server on `bind:port` that serves the
 //!   generated PAC on every path with `Content-Type: application/x-ns-proxy-autoconfig`.
-//!   Replaces `miniserve`; the body is regenerated from current env vars on
-//!   every request, so changes to `PAC_PROXY_HOST` / `PAC_SOCKS_PORT` /
-//!   `PAC_PROXY_CHAIN` are picked up without restarting the supervisor.
+//!   Replaces `miniserve`; the body is regenerated from the current
+//!   configuration on every request, so changes to config file fields
+//!   `proxy_host` / `socks_port` / `proxy_chain` (under `[pac_generate]`)
+//!   are picked up without restarting the supervisor.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -24,7 +25,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::config::{direct_domains, env_string, proxy_domains};
+use crate::config::{cfg_string, direct_domains, proxy_domains};
 
 /// PAC content-type that browsers and most proxy clients accept.
 const PAC_CONTENT_TYPE: &str = "application/x-ns-proxy-autoconfig";
@@ -60,16 +61,16 @@ fn build_direct_rules(domains: &[&str]) -> String {
     blocks.join("\n")
 }
 
-/// Generate the PAC file text using the current process environment.
+/// Generate the PAC file text using the current configuration.
 ///
-/// Honored variables (default in parentheses):
-///   - `PAC_PROXY_HOST` (`127.0.0.1`)
-///   - `PAC_SOCKS_PORT` (`1081`)
-///   - `PAC_PROXY_CHAIN` (`SOCKS5 ${PAC_PROXY_HOST}:${PAC_SOCKS_PORT}; DIRECT`)
+/// Configurable via config file fields (defaults in parentheses):
+///   - `[pac_generate] proxy_host` (`127.0.0.1`)
+///   - `[pac_generate] socks_port` (`1081`)
+///   - `[pac_generate] proxy_chain` (`SOCKS5 ${proxy_host}:${socks_port}; DIRECT`)
 pub fn generate() -> String {
-    let proxy_host = env_string("PAC_PROXY_HOST", "127.0.0.1");
-    let socks_port = env_string("PAC_SOCKS_PORT", "1081");
-    let proxy_chain = env_string(
+    let proxy_host = cfg_string("PAC_PROXY_HOST", "127.0.0.1");
+    let socks_port = cfg_string("PAC_SOCKS_PORT", "1081");
+    let proxy_chain = cfg_string(
         "PAC_PROXY_CHAIN",
         &format!("SOCKS5 {proxy_host}:{socks_port}; DIRECT"),
     );
@@ -190,9 +191,6 @@ mod tests {
 
     #[test]
     fn pac_default_chain_format() {
-        std::env::remove_var("PAC_PROXY_CHAIN");
-        std::env::remove_var("PAC_PROXY_HOST");
-        std::env::remove_var("PAC_SOCKS_PORT");
         let pac = generate();
         assert!(pac.contains("SOCKS5 127.0.0.1:1081; DIRECT"));
     }

@@ -35,7 +35,7 @@ When the bootstrap has run, you can use `just start` to start everything in the 
 To run in the background use `just start-detached` — the daemon logs to `~/.local/state/vpn-jumphost/jumphost.log`. To stop the daemon, use `just stop` (sends SIGTERM to the PID in `~/.local/state/vpn-jumphost/jumphost.pid`).
 
 ## Automatic credentials
-Credentials and all other settings can be configured via a TOML config file at `~/.config/vpn-jumphost/config.toml`, via environment variables, or via a `.env` file in the project root.
+Credentials can be configured via a TOML config file at `~/.config/vpn-jumphost/config.toml` or via environment variables (`VPN_USERNAME` / `VPN_PASSWORD`). All other settings are configured via the config file or CLI flags.
 
 Create a `.env` file in the project root (already in `.gitignore`):
 
@@ -45,15 +45,7 @@ VPN_USERNAME=your.email@example.com
 VPN_PASSWORD=your_password
 ```
 
-Alternatively, point to secret files (useful for container/systemd secret mounts):
-
-```bash
-# .env
-VPN_USERNAME_FILE=/var/run/secrets/vpn_user
-VPN_PASSWORD_FILE=/var/run/secrets/vpn_pass
-```
-
-Environment variables take precedence over file contents. The browser automation fills in the email/password automatically; you only need to confirm the MFA prompt.
+Environment variables take precedence over the config file `[credentials]` table. The browser automation fills in the email/password automatically; you only need to confirm the MFA prompt.
 
 ## Other recipes
 
@@ -124,7 +116,7 @@ environment.systemPackages = [
 nix run github:USER/REPO
 ```
 
-**macOS note:** Chromium is not available from nixpkgs on macOS. Install Chrome or Chromium system-wide and set `CHROMIUM_PATH`, or let `chromiumoxide` auto-detect it.
+**macOS note:** Chromium is not available from nixpkgs on macOS. Install Chrome or Chromium system-wide and set `chromium_path` in `config.toml`, or let `chromiumoxide` auto-detect it.
 
 **systemd integration:** The flake pairs well with the systemd service example at [`contrib/vpn-jumphost.service.example`](contrib/vpn-jumphost.service.example). Set `ExecStart` to `${pkgs.vpn-jumphost}/bin/jumphost run --serve-pac` (or the equivalent absolute store path) and the unit will use the wrapped binary with `openconnect` and `ocproxy` already on `PATH`.
 
@@ -154,13 +146,13 @@ Use `socks5h://127.0.0.1:1081` for all SOCKS5 clients. The routing proxy handles
 
 The `jumphost` binary reads the F5 session cookie from a file:
 
-- **`VPN_COOKIE_FILE`** — path to a file containing the cookie. Default `~/.local/state/vpn-jumphost/cookie` (mode 600). Also configurable as `cookie_file` in `config.toml`.
+- **`cookie_file`** — configurable in `config.toml` or via `--cookie-file PATH`. Default `~/.local/state/vpn-jumphost/cookie` (mode 600).
 
-On startup, `jumphost run` calls `jumphost validate-cookie` against the VPN endpoint. If the cookie is expired, invalid, or the file is missing, `jumphost fetch-cookie` is invoked automatically: a Chromium window opens for SSO + MFA and the captured `MRHSession` cookie is written back to `VPN_COOKIE_FILE`. The same validate/refresh cycle runs periodically while the supervisor is up (interval controlled by `JUMPHOST_CHECK_INTERVAL`, default 300 s).
+On startup, `jumphost run` calls `jumphost validate-cookie` against the VPN endpoint. If the cookie is expired, invalid, or the file is missing, `jumphost fetch-cookie` is invoked automatically: a Chromium window opens for SSO + MFA and the captured `MRHSession` cookie is written back to the cookie file. The same validate/refresh cycle runs periodically while the supervisor is up (interval controlled by `check_interval` in config.toml or `--check-interval`, default 300 s).
 
 ## Automatic login credentials
 
-For fully automated browser login (when using `just bootstrap` or `just fetch-cookie`), provide your VPN credentials via environment variables:
+For fully automated browser login (when using `just bootstrap` or `just fetch-cookie`), provide your VPN credentials via environment variables or the config file:
 
 - **VPN_USERNAME** — Your VPN email address
 - **VPN_PASSWORD** — Your VPN password
@@ -178,41 +170,28 @@ The `.env` file is already in `.gitignore`. The `jumphost` binary loads `.env` f
 1. Navigate to the configured VPN URL
 2. Automatically fill in your email and password (or click the matching tile when Microsoft shows the "Pick an account" picker)
 3. Wait for you to complete the MFA step
-4. Capture the session cookie and save it to `VPN_COOKIE_FILE`
+4. Capture the session cookie and save it to the cookie file
 
 ### File-based credentials
 
-As an alternative to environment variables, credentials can be read from files. This is useful for secret-mounting workflows (e.g. Docker/Podman secrets, systemd `LoadCredential=`, or Kubernetes volume mounts):
+As an alternative to environment variables or direct config values, credentials can be read from files via the config file. This is useful for secret-mounting workflows (e.g. Docker/Podman secrets, systemd `LoadCredential=`, or Kubernetes volume mounts):
 
-- **VPN_USERNAME_FILE** — Path to a file containing the username (contents are trimmed)
-- **VPN_PASSWORD_FILE** — Path to a file containing the password (contents are trimmed)
-
-Example:
-
-```bash
-# Point to mounted secret files
-export VPN_USERNAME_FILE=/var/run/secrets/vpn_user
-export VPN_PASSWORD_FILE=/var/run/secrets/vpn_pass
-just start
+```toml
+# config.toml
+[credentials]
+username_file = "/var/run/secrets/vpn_user"
+password_file = "/var/run/secrets/vpn_pass"
 ```
 
-**Precedence:** Environment variables (`VPN_USERNAME` / `VPN_PASSWORD`) always take precedence over the file-based variants. If both are set, the env var wins.
+**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > config file `username` / `password` > config file `username_file` / `password_file`.
 
 ### Persistent browser session reuse
 
 `just fetch-cookie` and the bootstrap login step drive Chromium (via the `chromiumoxide` crate and the Chrome DevTools Protocol) against a persistent user-data directory, so SSO/session state can be reused between runs.
 
 - Default profile path: `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/chromium-profile`
-- Override path: set `VPN_BROWSER_PROFILE_DIR`
-- Override the Chromium binary: set `CHROMIUM_PATH` (or `CHROME`). Inside `devenv shell` on Linux, `CHROMIUM_PATH` is exported automatically to the nixpkgs `chromium`. On macOS, `chromiumoxide` auto-detects a system-installed Chrome or Chromium.
-
-**Alternative:** Set environment variables directly:
-
-```bash
-export VPN_USERNAME="your.email@example.com"
-export VPN_PASSWORD="your_password"
-just bootstrap
-```
+- Override path: set `browser_profile_dir` in `config.toml`
+- Override the Chromium binary: set `chromium_path` in `config.toml` or use the `--chromium` CLI flag. Inside `devenv shell` on Linux, `CHROMIUM_PATH` is exported automatically to the nixpkgs `chromium` (picked up by `devenv.nix`). On macOS, `chromiumoxide` auto-detects a system-installed Chrome or Chromium.
 
 **Security note:** Credentials are only used for the initial browser login automation. They are not embedded in the cookie file or used beyond authentication.
 
