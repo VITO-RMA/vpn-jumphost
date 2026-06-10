@@ -105,7 +105,7 @@
       );
 
       overlays.default = final: prev: {
-        vpn-jumphost = self.packages.${final.system}.jumphost;
+        vpn-jumphost = self.packages.${final.stdenv.hostPlatform.system}.jumphost;
       };
     };
 }
