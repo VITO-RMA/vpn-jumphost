@@ -1,0 +1,109 @@
+set shell := ["bash", "-cu"]
+
+pkg_name := "vpn-jumphost"
+service_name := "vpn-jumphost.service"
+
+image := "arch-aur-pkgbuild-test"
+systemd_container := "arch-systemd-test"
+
+arch_dir := justfile_directory()
+repo_root := arch_dir / "../.."
+pkg_cache := ".pkg-cache"
+
+default:
+    just --list
+
+build-image:
+    docker build -f Dockerfile.test -t {{image}} .
+
+build-package: build-image
+    mkdir -p {{pkg_cache}}
+
+    docker run --rm \
+        -v "{{repo_root}}:/repo" \
+        -v "$PWD/{{pkg_cache}}:/out" \
+        {{image}} \
+        bash -lc '\
+            set -euo pipefail; \
+            cd /repo/contrib/archlinux; \
+            makepkg -sf --noconfirm; \
+            cp ./*.pkg.tar.zst /out/ \
+        '
+
+namcap: build-package
+    docker run --rm \
+        -v "$PWD:/build" \
+        -v "$PWD/{{pkg_cache}}:/pkgs" \
+        {{image}} \
+        bash -lc '\
+            set -euo pipefail; \
+            namcap PKGBUILD; \
+            namcap /pkgs/*.pkg.tar.zst \
+        '
+
+test-install: build-package
+    docker run --rm \
+        -v "{{repo_root}}:/repo" \
+        -v "$PWD/{{pkg_cache}}:/pkgs" \
+        {{image}} \
+        bash -lc '\
+            set -euo pipefail; \
+            sudo pacman -U --noconfirm /pkgs/{{pkg_name}}-*.pkg.tar.zst; \
+            pacman -Ql {{pkg_name}}; \
+            pacman -Qkk {{pkg_name}}; \
+            test -f /usr/lib/systemd/user/{{service_name}}; \
+            grep -q "^ExecStart=" /usr/lib/systemd/user/{{service_name}}; \
+            echo "Install-level package test passed." \
+        '
+
+show-execstart: build-package
+    docker run --rm \
+        -v "$PWD/{{pkg_cache}}:/pkgs" \
+        {{image}} \
+        bash -lc '\
+            set -euo pipefail; \
+            sudo pacman -U --noconfirm /pkgs/{{pkg_name}}-*.pkg.tar.zst; \
+            grep "^ExecStart=" /usr/lib/systemd/user/{{service_name}} \
+        '
+
+start-systemd-container: build-package
+    -docker rm -f {{systemd_container}}
+
+    docker run -d \
+        --name {{systemd_container}} \
+        --privileged \
+        --cgroupns=host \
+        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+        -v "$PWD/{{pkg_cache}}:/pkgs" \
+        {{image}} \
+        /usr/lib/systemd/systemd
+
+test-systemd: start-systemd-container
+    docker exec {{systemd_container}} bash -lc '\
+        set -euo pipefail; \
+        sudo pacman -U --noconfirm /pkgs/{{pkg_name}}-*.pkg.tar.zst; \
+        systemctl daemon-reload; \
+        systemctl enable {{service_name}}; \
+        systemctl start {{service_name}}; \
+        systemctl status {{service_name}} --no-pager; \
+        journalctl -u {{service_name}} --no-pager -n 100; \
+        systemctl restart {{service_name}}; \
+        systemctl status {{service_name}} --no-pager; \
+        echo "Runtime systemd test passed." \
+    '
+
+clean-systemd-container:
+    -docker rm -f {{systemd_container}}
+
+clean-packages:
+    rm -f *.pkg.tar.zst *.pkg.tar.zst.sig *.src.tar.gz
+    rm -rf {{pkg_cache}}
+
+test: test-install
+
+test-full: test-install test-systemd
+    just clean-systemd-container
+
+clean: clean-systemd-container clean-packages
+
+rebuild: clean build-package

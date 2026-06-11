@@ -1,8 +1,9 @@
 [package]
 name = "vpn-jumphost"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 description = "VPN jumphost: OpenConnect+ocproxy supervisor, routing SOCKS5 proxy, PAC server, and F5 cookie management (pure Rust, no Python)."
+license = "MIT"
 
 [[bin]]
 name = "jumphost"
@@ -33,12 +34,15 @@ tracing-subscriber = {
   features = ["ansi", "chrono", "env-filter"]
 }
 
-# HTTP client for cookie validation (no redirect-follow, rustls).
+# HTTP client for cookie validation (no redirect-follow, rustls+ring).
 reqwest = {
   version = "0.13",
   default-features = false,
-  features = ["rustls"],
+  features = ["rustls-no-provider"],
 }
+
+# Use ring as the rustls crypto provider (avoids aws-lc-sys C/asm build deps).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 bytes = "1"
 chromiumoxide = {
