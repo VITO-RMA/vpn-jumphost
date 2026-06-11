@@ -435,6 +435,11 @@ async fn fetch_inner(
             }
         }
 
+        // MFA approval screen — tick "Don't ask again for 14 days"
+        // (#idChkBx_SAOTCAS_TD) before the user approves on their phone.
+        // Runs unconditionally so it works in both headed and headless flows.
+        try_mfa_remember_device(&page).await;
+
         // Re-attempt credential fill in case Microsoft moved to a new
         // form between polls (e.g. account picker → password).
         if let Some(creds) = config::vpn_credentials() {
@@ -684,6 +689,42 @@ async fn current_mrhsession(browser: &Browser) -> Option<String> {
 
 #[allow(dead_code)]
 fn _unused() {}
+
+/// Check the "Don't ask again for 14 days" checkbox on the Azure AD MFA
+/// approval screen, if it is visible and not yet checked.
+///
+/// The element `#idChkBx_SAOTCAS_TD` (name `rememberMFA`) appears on the
+/// Authenticator push-approval page alongside the number-match display.
+/// Ticking it suppresses the MFA prompt for 14 days on this browser profile.
+/// The checkbox is Knockout.js-bound; `.click()` dispatches a native click
+/// event which KO's `checked` binding handles correctly.
+///
+/// Returns `true` when the element was found (regardless of prior state).
+async fn try_mfa_remember_device(page: &chromiumoxide::Page) -> bool {
+    let script = r#"(() => {
+        const cb = document.querySelector('#idChkBx_SAOTCAS_TD');
+        if (!cb) return 'none';
+        if (cb.checked) return 'already-checked';
+        if (cb.disabled) return 'disabled';
+        cb.click();
+        return 'clicked';
+    })()"#;
+    match page.evaluate(script).await {
+        Ok(val) => {
+            let result = val
+                .into_value::<String>()
+                .unwrap_or_else(|_| "<parse-error>".into());
+            if result == "clicked" {
+                info!("MFA: checked \"don't ask again for 14 days\" on approval screen");
+            }
+            result != "none"
+        }
+        Err(e) => {
+            debug!(error = %e, "try_mfa_remember_device evaluate failed");
+            false
+        }
+    }
+}
 
 /// Best-effort port of `_try_microsoft_login_steps` from the old Python
 /// fetcher. Selectors target the standard Azure AD login form (`#i0116` =
