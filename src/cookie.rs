@@ -326,6 +326,7 @@ async fn fetch_inner(
     let deadline = Instant::now() + max_wait;
     let mut warned_invalid = false;
     let mut notified_number: Option<String> = None;
+    let mut mfa_notification = NotificationGuard::new();
     let mut stuck_url_count: u32 = 0;
     let mut last_url = String::new();
     loop {
@@ -350,6 +351,9 @@ async fn fetch_inner(
         if let Some(value) = maybe_value {
             if matches!(validate_cookie(&value).await, CookieStatus::Valid) {
                 info!("captured valid MRHSession cookie");
+                // Dismiss the MFA number-match notification now that
+                // login has succeeded.
+                mfa_notification.close();
                 return Ok(FetchOutcome::Cookie(value));
             }
             if !warned_invalid {
@@ -411,7 +415,7 @@ async fn fetch_inner(
                         eprintln!("  ╚══════════════════════════════════════╝");
                         eprintln!();
                         info!(number = %num, "MFA: approve sign-in request with this number");
-                        send_mfa_notification(num);
+                        mfa_notification.set(send_mfa_notification(num).await);
                         notified_number = Some(num.clone());
                     }
                     // Stay headless — keep polling for the cookie.
@@ -608,6 +612,54 @@ async fn click_authenticator_option(page: &chromiumoxide::Page) {
     }
 }
 
+/// Guard that closes a desktop notification when dropped or explicitly
+/// closed.  Ensures the MFA number-match notification is dismissed once
+/// login succeeds (or the fetch is abandoned for any reason).
+struct NotificationGuard(Option<notify_rust::NotificationHandle>);
+
+impl NotificationGuard {
+    fn new() -> Self {
+        Self(None)
+    }
+
+    /// Replace the stored handle, closing the previous notification (if
+    /// any) first.  Passing `None` just closes without storing a new one.
+    fn set(&mut self, handle: Option<notify_rust::NotificationHandle>) {
+        self.close();
+        self.0 = handle;
+    }
+
+    /// Explicitly close the notification (idempotent).
+    fn close(&mut self) {
+        if let Some(handle) = self.0.take() {
+            // On Linux, `NotificationHandle::close()` sends a D-Bus
+            // `CloseNotification` message.  It uses zbus's blocking
+            // `block_on` internally, which panics when called from
+            // within a tokio runtime — spawn a short-lived thread.
+            //
+            // On macOS, `NotificationHandle` has no `close()` method;
+            // notifications auto-dismiss after a few seconds.
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::thread::Builder::new()
+                    .name("close-mfa-notif".into())
+                    .spawn(move || {
+                        handle.close();
+                    });
+            }
+            #[cfg(not(target_os = "linux"))]
+            drop(handle);
+            info!("closed MFA desktop notification");
+        }
+    }
+}
+
+impl Drop for NotificationGuard {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 /// Show the MFA number-match code as a desktop notification so the user
 /// can approve on their phone even when the browser is headless.
 ///
@@ -615,9 +667,14 @@ async fn click_authenticator_option(page: &chromiumoxide::Page) {
 /// and the Notification Center on macOS — no external binary needed.
 /// Failures are logged but not fatal; the number is also emitted via
 /// `tracing::info` for journal/log consumers.
-fn send_mfa_notification(number: &str) {
+///
+/// Returns the [`notify_rust::NotificationHandle`] so the caller can
+/// close (revoke) the notification once login succeeds.  On macOS the
+/// `osascript` path cannot be revoked programmatically, so `None` is
+/// returned in that case.
+async fn send_mfa_notification(number: &str) -> Option<notify_rust::NotificationHandle> {
     let number = number.to_owned();
-    let _handle = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         // On macOS, use osascript which reliably delivers notifications
         // from CLI apps.  notify_rust's mac-notification-sys often fails
         // silently because the binary has no bundle identifier.
@@ -634,7 +691,7 @@ fn send_mfa_notification(number: &str) {
             {
                 Ok(out) if out.status.success() => {
                     info!(number = %number, "sent MFA desktop notification (osascript)");
-                    return;
+                    return None; // Cannot revoke osascript notifications
                 }
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -655,14 +712,23 @@ fn send_mfa_notification(number: &str) {
         #[cfg(target_os = "linux")]
         notification.urgency(notify_rust::Urgency::Critical);
         match notification.show() {
-            Ok(_) => info!(number = %number, "sent MFA desktop notification"),
-            Err(e) => warn!(
-                error = %e,
-                number = %number,
-                "desktop notification failed; approve the number shown in the log"
-            ),
+            Ok(handle) => {
+                info!(number = %number, "sent MFA desktop notification");
+                Some(handle)
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    number = %number,
+                    "desktop notification failed; approve the number shown in the log"
+                );
+                None
+            }
         }
-    });
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Read `MRHSession` from the browser-wide cookie jar (covers all open
