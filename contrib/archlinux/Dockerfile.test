@@ -1,0 +1,15 @@
+FROM archlinux:latest
+
+RUN pacman -Syu --noconfirm \
+    base-devel \
+    git \
+    sudo \
+    systemd \
+    && pacman -Scc --noconfirm
+
+RUN useradd -m builder \
+    && echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder \
+    && chmod 0440 /etc/sudoers.d/builder
+
+USER builder
+WORKDIR /build
