@@ -23,3 +23,5 @@ venv.bak/
 # devenv state
 .devenv
 
+/contrib/archlinux/.pkg-cache
+/contrib/archlinux/pkg
