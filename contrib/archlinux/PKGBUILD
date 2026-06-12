@@ -10,7 +10,9 @@ depends=('openconnect' 'ocproxy' 'chromium')
 makedepends=('cargo')
 install=vpn-jumphost.install
 backup=()
-options=(!debug)
+# Disable makepkg's C/C++ LTO: Rust crates with bundled native code (e.g. ring/aws-lc-sys)
+# can fail to link under Arch's default lto option even when plain cargo builds work.
+options=(!debug !lto)
 source=()
 sha256sums=()
 

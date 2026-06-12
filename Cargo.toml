@@ -37,12 +37,8 @@ tracing-subscriber = {
 # HTTP client for cookie validation (no redirect-follow, rustls+ring).
 reqwest = {
   version = "0.13",
-  default-features = false,
-  features = ["rustls-no-provider"],
 }
 
-# Use ring as the rustls crypto provider (avoids aws-lc-sys C/asm build deps).
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 bytes = "1"
 chromiumoxide = {

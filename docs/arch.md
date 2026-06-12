@@ -7,7 +7,7 @@ The project ships a `PKGBUILD` at [`contrib/archlinux/`](../contrib/archlinux/) 
 
 First make sure `ocproxy` is installed from the AUR.
 ```bash
-paru install ocproxy aws-lc
+paru -S ocproxy-bin
 ```
 
 ```bash
@@ -16,6 +16,8 @@ makepkg -si
 ```
 
 `makepkg -si` builds the binary with `cargo build --release --locked` and installs the resulting package via `pacman`.
+
+The packaged build disables Arch `makepkg` LTO (`options=(!lto)`) because crates that bundle native C/asm code, such as `ring` or `aws-lc-sys`, can hit linker failures under Arch's default package-level LTO even when a normal `cargo build --release` succeeds.
 
 ## Post-install setup
 
