@@ -51,8 +51,6 @@ http-body-util = "0.1"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 
-notify-rust = "4"
-
 # UNIX-specific bits (signals, fork/exec, etc.).
 nix = { version = "0.31", features = ["process", "signal"] }
 
@@ -65,8 +63,9 @@ serde = { version = "1", features = ["derive"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 toml = "1"
 
-# Linux-only: D-Bus client for logind PrepareForSleep signal.
+# Linux-only: D-Bus desktop notifications + logind PrepareForSleep.
 [target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = "4"
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 # macOS-only: Cocoa bindings for NSWorkspaceDidWakeNotification.
