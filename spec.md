@@ -190,13 +190,9 @@ export ALL_PROXY=socks5h://127.0.0.1:1081
 - Navigates to the configured `VPN_URL`; the browser presents the SAML / Microsoft SSO login flow.
 - When `VPN_USERNAME` / `VPN_PASSWORD` are set, automation handles both account-picker and credential forms via CDP.
 - Polls the browser-wide CDP cookie store (`Storage.getCookies`) for the `MRHSession` cookie (up to `--max-wait` seconds; default 300). The page-scoped `Network.getCookies` is **not** used: it returns no rows when invoked on the browser root target.
-- Writes the cookie value to the file given by `-o/--output` (default same as `run`'s `--cookie-file`: `$VPN_COOKIE_FILE` or the XDG default), creating parent directories with `umask 077` (final file mode `600`). Status messages go to stderr via the `tracing` subscriber.
+- Writes the cookie value to `cookie_file` (configured via `cookie_file` in config.toml, default `$XDG_STATE_HOME/vpn-jumphost/cookie`), creating parent directories with `umask 077` (final file mode `600`). Status messages go to stderr via the `tracing` subscriber.
 
 **CLI flags:**
-- `-o, --output FILE` — destination cookie file (default same as `run`).
-- `--profile-dir DIR` — persistent Chromium user-data-dir.
-- `--chromium PATH` — Chromium executable path (defaults to `$CHROMIUM_PATH` / `$CHROME`).
-- `--max-wait SECONDS` — maximum time to wait for SSO + MFA to complete (default 300).
 - `--headless` — launch Chromium in headless mode (no visible window). Requires `VPN_USERNAME` + `VPN_PASSWORD` for unattended SSO. The Authenticator push MFA flow works entirely headless (the number-match value is shown as a desktop notification via `notify-rust`); only TOTP/interactive MFA prompts cause an automatic headed relaunch. Default is `false`; also settable via `JUMPHOST_HEADLESS=1`.
 
 **Standalone usage:**
@@ -327,7 +323,7 @@ Ctrl-C (or `just stop`) sends SIGTERM to the `jumphost` process; the supervisor 
 
 The supervisor (`src/jumphost.rs` for `run`, `src/cookie.rs` for the primitives) reads the cookie from the configured cookie file path:
 
-1. **Cookie file** — openconnect reads the cookie directly from this file via stdin (the file is opened in `src/vpn.rs` and assigned to the child's `stdin`). Default `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/cookie`, overridable via `--cookie-file` CLI flag or `cookie_file` in config.toml. The wizard (and `jumphost fetch-cookie`) write here with `umask 077`.
+1. **Cookie file** — openconnect reads the cookie directly from this file via stdin (the file is opened in `src/vpn.rs` and assigned to the child's `stdin`). Default `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/cookie`, overridable via `cookie_file` in config.toml. The wizard (and `jumphost fetch-cookie`) write here with `umask 077`.
 
 Before starting openconnect, the supervisor validates the cookie and auto-refreshes it if needed:
 
@@ -351,7 +347,7 @@ There is no `VPN_COOKIE` env-var fallback and no interactive stdin fallback (pro
 
 A single-process supervisor for environments where `process-compose` isn't desired — most notably as a `systemctl --user` unit (see `contrib/vpn-jumphost.service.example`) or under `nohup` via `just start-detached`. The `jumphost run` subcommand:
 
-1. Resolves the cookie path (`--cookie-file` CLI flag, `cookie_file` in config.toml, or the default `$XDG_STATE_HOME/vpn-jumphost/cookie`).
+1. Resolves the cookie path (`cookie_file` in config.toml, or the default `$XDG_STATE_HOME/vpn-jumphost/cookie`).
 2. Validates the cookie via the in-process validator. Refreshes via the Chromium cookie-fetch flow on "invalid" results; on network errors keeps the existing cookie.
 3. Starts `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file connected to stdin. openconnect spawns ocproxy (SOCKS5 on `127.0.0.1:${socks_port}`) as its `--script-tun` peer. The supervisor tracks openconnect's PID and tears it down on SIGTERM/SIGINT/SIGHUP.
 4. Starts the routing proxy task on `127.0.0.1:1081` (configurable via `routing_proxy.port` in config.toml). ocproxy listens on port 1080 (configurable via `socks_port` in config.toml).
@@ -466,9 +462,9 @@ Most configuration is done via the config file or CLI flags. Only two environmen
 
 Standard system variables (`XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `RUST_LOG`, `NO_COLOR`, `FORCE_COLOR`, `PATH`) are honored as usual but are not application-specific configuration.
 
-CLI overview: `-c/--config FILE`, `--serve-pac`, `--check-interval SECONDS`, `--cookie-file PATH`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). The `run`-specific flags are accepted both at the top level (`jumphost --no-headless --serve-pac`) and on the `run` subcommand. The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
+CLI overview: `-c/--config FILE`, `--serve-pac`, `--check-interval SECONDS`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
 
-`fetch-cookie` CLI: `-o/--output FILE`, `--profile-dir DIR`, `--chromium PATH`, `--max-wait SECONDS`, `--headless`.
+`fetch-cookie` CLI: `--headless`.
 
 `authenticate` CLI: `--delete` (remove stored credentials instead of prompting).
 

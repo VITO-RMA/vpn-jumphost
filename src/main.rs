@@ -51,7 +51,7 @@ enum Command {
     /// Exit codes: 0 = valid, 1 = invalid, 2 = network error.
     ValidateCookie(ValidateArgs),
     /// Print the generated PAC file to stdout (or to a file).
-    GeneratePac(GenerateArgs),
+    GeneratePac(GeneratePacArgs),
     /// Store VPN credentials (username + password) in the OS keyring
     /// (macOS Keychain / Linux Secret Service). Prompts interactively.
     Authenticate(AuthenticateArgs),
@@ -70,10 +70,6 @@ struct RunArgs {
     #[arg(long, value_name = "SECONDS")]
     check_interval: Option<f64>,
 
-    /// Path to the MRHSession cookie file.
-    #[arg(long, value_name = "PATH")]
-    cookie_file: Option<PathBuf>,
-
     /// Disable headless cookie refresh. By default the supervisor uses
     /// headless mode when credentials are configured and shows an MFA
     /// desktop notification. This flag forces it to always open a visible
@@ -84,24 +80,6 @@ struct RunArgs {
 
 #[derive(Args, Debug, Clone)]
 struct FetchArgs {
-    /// File to write the cookie to (mode 600). Defaults to the same path
-    /// used by `run`.
-    #[arg(short, long, value_name = "FILE")]
-    output: Option<PathBuf>,
-
-    /// Persistent Chromium user-data-dir for SSO/session reuse.
-    #[arg(long, value_name = "DIR")]
-    profile_dir: Option<PathBuf>,
-
-    /// Path to a Chromium executable. Uses chromiumoxide's
-    /// auto-detection if not specified.
-    #[arg(long, value_name = "PATH")]
-    chromium: Option<PathBuf>,
-
-    /// Maximum seconds to wait for the user to complete SSO + MFA.
-    #[arg(long, default_value_t = 300, value_name = "SECONDS")]
-    max_wait: u64,
-
     /// Launch the browser in headless mode (no visible window). If an
     /// MFA/2FA prompt is detected, the browser is automatically
     /// relaunched with a visible window for user interaction.
@@ -125,7 +103,7 @@ struct AuthenticateArgs {
 }
 
 #[derive(Args, Debug, Clone)]
-struct GenerateArgs {
+struct GeneratePacArgs {
     /// Output path. When omitted, the PAC is written to stdout.
     #[arg(value_name = "PATH")]
     output: Option<PathBuf>,
@@ -149,7 +127,7 @@ fn main() -> ExitCode {
 
     // On macOS, CLI binaries have no bundle identifier, so
     // NSUserNotificationCenter silently drops notifications.  Register
-    // one so MFA number-match notifications actually appear.
+    // one so MFA desktop notifications actually appear.
     #[cfg(target_os = "macos")]
     {
         if let Err(e) = notify_rust::set_application("sas.vpn-jumphost") {
@@ -185,11 +163,9 @@ fn main() -> ExitCode {
 // ── Subcommands ───────────────────────────────────────────────────────────
 
 async fn cmd_run(args: RunArgs) -> ExitCode {
-    let cookie_file = args.cookie_file.unwrap_or_else(config::default_cookie_file);
-    if let Some(parent) = cookie_file.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            warn!(path = %parent.display(), error = %e, "could not create cookie parent dir");
-        }
+    let cookie_file = config::default_cookie_file();
+    if let Err(e) = config::ensure_parent_dir(&cookie_file) {
+        warn!(path = %cookie_file.display(), error = %e, "could not create cookie parent dir");
     }
 
     let check_interval_s = args.check_interval.unwrap_or_else(|| {
@@ -235,21 +211,16 @@ async fn cmd_run(args: RunArgs) -> ExitCode {
 }
 
 async fn cmd_fetch(args: FetchArgs) -> ExitCode {
-    let output = args.output.unwrap_or_else(config::default_cookie_file);
-    let profile = args
-        .profile_dir
-        .unwrap_or_else(config::default_browser_profile_dir);
+    let output = config::default_cookie_file();
 
     let stop = CancellationToken::new();
     install_signal_handlers(stop.clone());
 
     let opts = FetchOptions {
         output: Some(output.clone()),
-        profile_dir: Some(profile),
-        max_wait: Duration::from_secs(args.max_wait),
-        chromium_path: args.chromium.or_else(config::chromium_path),
         headless: args.headless,
         stop,
+        ..FetchOptions::default()
     };
 
     match cookie::fetch(opts).await {
@@ -282,7 +253,7 @@ async fn cmd_validate(args: ValidateArgs) -> ExitCode {
     }
 }
 
-async fn cmd_generate(args: GenerateArgs) -> ExitCode {
+async fn cmd_generate(args: GeneratePacArgs) -> ExitCode {
     let body = pac::generate();
     match args.output {
         Some(path) => match std::fs::write(&path, &body) {

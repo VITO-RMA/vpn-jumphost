@@ -178,7 +178,7 @@ Use `socks5h://127.0.0.1:1081` for all SOCKS5 clients. The routing proxy handles
 
 The `jumphost` binary reads the F5 session cookie from a file:
 
-- **`cookie_file`** — configurable in `config.toml` or via `--cookie-file PATH`. Default `~/.local/state/vpn-jumphost/cookie` (mode 600).
+- **`cookie_file`** — configurable in `config.toml`. Default `~/.local/state/vpn-jumphost/cookie` (mode 600).
 
 On startup, `jumphost run` calls `jumphost validate-cookie` against the VPN endpoint. If the cookie is expired, invalid, or the file is missing, `jumphost fetch-cookie` is invoked automatically: a Chromium window opens for SSO + MFA and the captured `MRHSession` cookie is written back to the cookie file. The same validate/refresh cycle runs periodically while the supervisor is up (interval controlled by `check_interval` in config.toml or `--check-interval`, default 300 s).
 
