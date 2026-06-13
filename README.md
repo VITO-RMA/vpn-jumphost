@@ -1,6 +1,6 @@
 # VPN Jumphost
 
-A VPN jumphost that connects to an F5 BIG-IP APM VPN with `openconnect`, accepts an F5 session cookie, and exposes a local SOCKS5 proxy on loopback so host applications can selectively route traffic through the VPN session. A PAC file generator and a small PAC HTTP server are included so browsers can decide which traffic goes through the jumphost. A routing SOCKS5 proxy sits in front of ocproxy and applies per-domain routing rules, so any SOCKS5-capable tool (git, curl, SSH, etc.) can use a single proxy address (`socks5h://127.0.0.1:1081`) without needing PAC support.
+A VPN jumphost that connects to a VPN with `openconnect`, accepts a session cookie, and exposes a local SOCKS5 proxy on loopback so host applications can selectively route traffic through the VPN session. A PAC file generator and a small PAC HTTP server are included so browsers can decide which traffic goes through the jumphost. A routing SOCKS5 proxy sits in front of ocproxy and applies per-domain routing rules, so any SOCKS5-capable tool (git, curl, SSH, etc.) can use a single proxy address (`socks5h://127.0.0.1:1081`) without needing PAC support.
 
 Traffic is selective and proxy-based: you keep normal host networking and only send chosen domains or IP ranges through the jumphost.
 
