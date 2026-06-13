@@ -28,3 +28,4 @@ venv.bak/
 /contrib/debian/.pkg-cache
 /contrib/debian/.cargo-cache
 /contrib/macos/.pkg-cache
+/contrib/macos/*.pkg
