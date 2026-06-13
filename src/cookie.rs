@@ -243,7 +243,6 @@ async fn launch_and_fetch(vpn_url: &str, options: &FetchOptions, headless: bool)
     }
 
     let config = builder.build().map_err(|e| anyhow!("could not build Chromium config: {e}"))?;
-
     let (mut browser, mut handler) = Browser::launch(config)
         .await
         .map_err(|e| anyhow!("could not launch Chromium: {e}. Is `chromium` installed?"))?;
@@ -266,6 +265,7 @@ async fn launch_and_fetch(vpn_url: &str, options: &FetchOptions, headless: bool)
         }
         let _ = browser.wait().await;
     };
+
     if tokio::time::timeout(Duration::from_secs(5), cleanup).await.is_err() {
         warn!("browser cleanup timed out after 5 s; abandoning");
     }
@@ -288,7 +288,8 @@ async fn fetch_inner(
         .map_err(|e| anyhow!("could not open new page: {e}"))?;
 
     // Best-effort credential auto-fill.
-    if let Some(creds) = config::vpn_credentials() {
+    let creds = config::vpn_credentials();
+    if let Some(creds) = &creds {
         try_microsoft_login(&page, &creds.username, &creds.password).await;
     } else {
         debug!("no credentials configured; skipping auto-fill");
@@ -302,8 +303,7 @@ async fn fetch_inner(
     let mut stuck_url_count: u32 = 0;
     let mut last_url = String::new();
     loop {
-        // Fast-path: catch cancellations that arrived during a short CDP
-        // call in the previous iteration.
+        // Fast-path: catch cancellations that arrived during a short CDP call in the previous iteration.
         if stop.is_cancelled() {
             info!("cookie fetch interrupted by shutdown signal");
             return Err(anyhow!("interrupted"));
@@ -416,7 +416,7 @@ async fn fetch_inner(
 
         // Re-attempt credential fill in case Microsoft moved to a new
         // form between polls (e.g. account picker → password).
-        if let Some(creds) = config::vpn_credentials() {
+        if let Some(creds) = &creds {
             try_microsoft_login(&page, &creds.username, &creds.password).await;
         } else {
             debug!("no credentials configured; skipping auto-fill (loop)");
