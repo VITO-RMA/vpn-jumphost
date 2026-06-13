@@ -55,19 +55,19 @@ vpn_url = "https://byod.vito.be"
 
 # -- Routing proxy (defaults: 127.0.0.1:1081) -------------------------
 
-# [routing_proxy]
+[routing_proxy]
 # bind = "127.0.0.1"
 # port = 1081
 
 # -- PAC HTTP server (defaults: 127.0.0.1:8091) -----------------------
 
-# [pac_server]
+[pac_server]
 # bind = "127.0.0.1"
 # port = 8091
 
 # -- PAC generation (defaults shown) ----------------------------------
 
-# [pac_generate]
+[pac_generate]
 # proxy_host = "127.0.0.1"
 # socks_port = "1081"
 # proxy_chain = "SOCKS5 127.0.0.1:1081; DIRECT"
@@ -89,12 +89,8 @@ direct = ["byod.vito.be"]
 # browser-based cookie fetch can pre-fill the SSO form automatically.
 # Precedence per field: VPN_USERNAME/VPN_PASSWORD env var > config value >
 # config *_file path.
-#
-# NOTE: you must uncomment BOTH the [credentials] header AND the fields
-# below it.  Without the header, TOML treats these as top-level keys
-# and they won't be recognized.
 
-# [credentials]
+[credentials]
 # username = "user@vito.be"
 # password = "changeme"             # prefer password_file instead
 # username_file = "/run/secrets/vpn_user"
