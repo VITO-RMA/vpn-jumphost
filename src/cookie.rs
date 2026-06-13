@@ -131,9 +131,6 @@ pub fn write_cookie_file(path: &Path, value: &str) -> Result<()> {
 
 /// Options for [`fetch`].
 pub struct FetchOptions {
-    /// File to write the cookie to (mode 600). The cookie is also returned
-    /// on success.
-    pub output: Option<PathBuf>,
     /// Persistent user-data-dir (browser profile). When `None`, an
     /// ephemeral temp dir is used.
     pub profile_dir: Option<PathBuf>,
@@ -155,7 +152,6 @@ pub struct FetchOptions {
 impl Default for FetchOptions {
     fn default() -> Self {
         Self {
-            output: None,
             profile_dir: Some(config::default_browser_profile_dir()),
             max_wait: Duration::from_secs(300),
             chromium_path: config::chromium_path(),
@@ -177,7 +173,7 @@ enum FetchOutcome {
 
 /// Open a Chromium browser, wait for SSO to complete, and return the
 /// captured `MRHSession` cookie. On success the cookie is also written
-/// to `options.output` (when set).
+/// to `config::cookie_file_path()`.
 ///
 /// When `options.headless` is `true` the browser starts without a visible
 /// window. For Authenticator push MFA the number to match is extracted
@@ -221,10 +217,9 @@ pub async fn fetch(options: FetchOptions) -> Result<String> {
         }
     };
 
-    if let Some(out) = options.output.as_ref() {
-        write_cookie_file(out, &cookie)?;
-        info!(path = %out.display(), "cookie saved");
-    }
+    let out = config::cookie_file_path();
+    write_cookie_file(&out, &cookie)?;
+    info!(path = %out.display(), "cookie saved");
 
     Ok(cookie)
 }

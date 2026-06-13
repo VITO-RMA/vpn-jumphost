@@ -1,14 +1,14 @@
 //! PAC (Proxy Auto-Configuration) generation and serving.
 //!
 //! - [`generate`] produces the PAC JavaScript text from the routing
-//!   constants in [`crate::config`] plus an optional proxy chain string.
-//!   This is the Rust port of the old `scripts/generate-pac.py`.
+//!   constants in [`crate::config`]. The proxy chain is always
+//!   `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT`.
 //! - [`serve`] runs a tiny HTTP/1.1 server on `bind:port` that serves the
 //!   generated PAC on every path with `Content-Type: application/x-ns-proxy-autoconfig`.
 //!   Replaces `miniserve`; the body is regenerated from the current
-//!   configuration on every request, so changes to config file fields
-//!   `proxy_host` / `socks_port` / `proxy_chain` (under `[pac_generate]`)
-//!   are picked up without restarting the supervisor.
+//!   configuration on every request, so changes to `routing_proxy.bind` /
+//!   `routing_proxy.port` in the config file are picked up without
+//!   restarting the supervisor.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -63,17 +63,12 @@ fn build_direct_rules(domains: &[&str]) -> String {
 
 /// Generate the PAC file text using the current configuration.
 ///
-/// Configurable via config file fields (defaults in parentheses):
-///   - `[pac_generate] proxy_host` (`127.0.0.1`)
-///   - `[pac_generate] socks_port` (`1081`)
-///   - `[pac_generate] proxy_chain` (`SOCKS5 ${proxy_host}:${socks_port}; DIRECT`)
+/// The proxy chain is always `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT`,
+/// using the same bind/port settings as the routing proxy itself.
 pub fn generate() -> String {
-    let proxy_host = config::cfg_string("PAC_PROXY_HOST", "127.0.0.1");
-    let socks_port = config::cfg_string("PAC_SOCKS_PORT", "1081");
-    let proxy_chain = config::cfg_string(
-        "PAC_PROXY_CHAIN",
-        &format!("SOCKS5 {proxy_host}:{socks_port}; DIRECT"),
-    );
+    let proxy_host = config::cfg_string("ROUTING_PROXY_BIND", config::DEFAULT_ROUTING_PROXY_BIND);
+    let socks_port = config::cfg_u16("ROUTING_PROXY_PORT", config::DEFAULT_ROUTING_PROXY_PORT);
+    let proxy_chain = format!("SOCKS5 {proxy_host}:{socks_port}; DIRECT");
 
     let direct = config::direct_domains();
     let proxy = config::proxy_domains();

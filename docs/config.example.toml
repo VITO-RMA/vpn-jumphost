@@ -42,14 +42,6 @@ vpn_url = "https://byod.vito.be"
 
 # -- Paths (usually fine as defaults) ----------------------------------
 
-# Path to the F5 MRHSession cookie file.
-# Defaults to $XDG_STATE_HOME/vpn-jumphost/cookie.
-# cookie_file = "/home/user/.local/state/vpn-jumphost/cookie"
-
-# Chromium user-data-dir for SSO / session reuse.
-# Defaults to $XDG_STATE_HOME/vpn-jumphost/chromium-profile.
-# browser_profile_dir = "/home/user/.local/state/vpn-jumphost/chromium-profile"
-
 # Path to a Chromium executable.
 # chromium_path = "/usr/bin/chromium"
 
@@ -64,13 +56,6 @@ vpn_url = "https://byod.vito.be"
 [pac_server]
 # bind = "127.0.0.1"
 # port = 8091
-
-# -- PAC generation (defaults shown) ----------------------------------
-
-[pac_generate]
-# proxy_host = "127.0.0.1"
-# socks_port = "1081"
-# proxy_chain = "SOCKS5 127.0.0.1:1081; DIRECT"
 
 # -- Domain routing (required -- no compiled-in defaults) --------------
 #

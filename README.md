@@ -215,7 +215,7 @@ username_file = "/var/run/secrets/vpn_user"
 password_file = "/var/run/secrets/vpn_pass"
 ```
 
-**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > OS keyring > config file `username` / `password` > config file `username_file` / `password_file`.
+**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > OS keyring > config file `username_file` / `password_file`. Each source must supply both username and password; sources are never mixed.
 
 ### OS keyring
 
@@ -237,8 +237,7 @@ Keyring credentials sit between environment variables and the config file in the
 
 `just fetch-cookie` and the bootstrap login step drive Chromium (via the `chromiumoxide` crate and the Chrome DevTools Protocol) against a persistent user-data directory, so SSO/session state can be reused between runs.
 
-- Default profile path: `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/chromium-profile`
-- Override path: set `browser_profile_dir` in `config.toml`
+- Default profile path: `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/chromium-profile` (fixed; not configurable)
 - Override the Chromium binary: set `chromium_path` in `config.toml` or use the `--chromium` CLI flag. Inside `devenv shell` on Linux, `CHROMIUM_PATH` is exported automatically to the nixpkgs `chromium` (picked up by `devenv.nix`). On macOS, `chromiumoxide` auto-detects a system-installed Chrome or Chromium.
 
 **Security note:** Credentials are only used for the initial browser login automation. They are not embedded in the cookie file or used beyond authentication.

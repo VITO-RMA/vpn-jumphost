@@ -6,10 +6,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use directories::BaseDirs;
 
-use crate::config_file;
+use crate::{config_file, credential_store};
 
 /// Default F5 VPN endpoint URL (empty — must be configured via config file, env var, or CLI).
 pub const DEFAULT_VPN_URL: &str = "";
@@ -115,24 +116,12 @@ pub fn state_dir() -> PathBuf {
         .join("vpn-jumphost")
 }
 
-/// Default cookie file path: `<state_dir>/cookie`.
-///
-/// Precedence: config file `cookie_file` > `<state_dir>/cookie`.
-pub fn default_cookie_file() -> PathBuf {
-    if let Some(ref path) = config_file::get().cookie_file {
-        return path.clone();
-    }
+pub fn cookie_file_path() -> PathBuf {
     state_dir().join("cookie")
 }
 
-/// Default persistent browser profile directory used by the cookie-fetch
-/// flow.
-///
-/// Precedence: config file > default.
+/// Persistent browser profile directory used by the cookie-fetch flow.
 pub fn default_browser_profile_dir() -> PathBuf {
-    if let Some(ref path) = config_file::get().browser_profile_dir {
-        return path.clone();
-    }
     state_dir().join("chromium-profile")
 }
 
@@ -180,105 +169,60 @@ pub struct VpnCredentials {
     pub password: String,
 }
 
-/// Resolve VPN credentials with the following precedence:
+/// Resolve VPN credentials.
 ///
-/// 1. Environment variable (`VPN_USERNAME` / `VPN_PASSWORD`) — highest priority.
+/// Each source must supply **both** username and password; sources are never
+/// mixed. Precedence (highest → lowest):
+///
+/// 1. Environment variables (`VPN_USERNAME` + `VPN_PASSWORD`).
 /// 2. OS keyring (macOS Keychain / Linux Secret Service).
-/// 3. Config file `[credentials]` table.
+/// 3. Config file `[credentials]` `username_file` / `password_file` paths.
 ///
-/// Returns `Some(VpnCredentials)` only when **both** username and password
-/// resolve to a non-empty value. Returns `None` otherwise.
+/// Returns `Some(VpnCredentials)` only when both fields are non-empty from
+/// the same source. Returns `None` otherwise.
 pub fn vpn_credentials() -> Option<VpnCredentials> {
-    let username = resolve_secret("VPN_USERNAME", |c| {
-        c.credentials
-            .as_ref()
-            .map(|cr| (&cr.username, &cr.username_file))
-    });
-    let password = resolve_secret("VPN_PASSWORD", |c| {
-        c.credentials
-            .as_ref()
-            .map(|cr| (&cr.password, &cr.password_file))
-    });
-
-    match (username, password) {
-        (Some(u), Some(p)) if !u.is_empty() && !p.is_empty() => Some(VpnCredentials {
-            username: u,
-            password: p,
-        }),
-        _ => None,
+    // 1. Read from the environment
+    let env_u = std::env::var("VPN_USERNAME").ok().filter(|s| !s.is_empty());
+    let env_p = std::env::var("VPN_PASSWORD").ok().filter(|s| !s.is_empty());
+    if let (Some(username), Some(password)) = (env_u, env_p) {
+        return Some(VpnCredentials { username, password });
     }
-}
 
-/// Resolve a single secret value.
-///
-/// Precedence: env var > OS keyring > config file value > config file *_file path.
-fn resolve_secret<F>(env_key: &str, cfg_accessor: F) -> Option<String>
-where
-    F: FnOnce(&config_file::FileConfig) -> Option<(&Option<String>, &Option<PathBuf>)>,
-{
-    // 1. Try the direct environment variable.
-    if let Ok(val) = std::env::var(env_key) {
-        if !val.is_empty() {
-            return Some(val);
+    // 2. OS keyring
+    if let Some((u, p)) = credential_store::get_credentials() {
+        if !u.is_empty() && !p.is_empty() {
+            return Some(VpnCredentials {
+                username: u,
+                password: p,
+            });
         }
     }
 
-    // 2. Try the OS keyring.
-    //    We check the keyring per-field so that mixed sources work
-    //    (e.g. username from keyring, password from env).
-    let keyring_val = match env_key {
-        "VPN_USERNAME" => crate::credential_store::get_credentials().map(|(u, _)| u),
-        "VPN_PASSWORD" => crate::credential_store::get_credentials().map(|(_, p)| p),
-        _ => None,
-    };
-    if let Some(val) = keyring_val {
-        if !val.is_empty() {
-            return Some(val);
-        }
-    }
-
-    // 3. Try the config file.
+    // 3. Config file *_file paths
     let cfg = config_file::get();
-    if let Some((direct_val, file_path)) = cfg_accessor(cfg) {
-        // 2a. Direct value in config.
-        if let Some(val) = direct_val {
-            if !val.is_empty() {
-                return Some(val.clone());
-            }
-        }
-        // 2b. File path in config.
-        if let Some(path) = file_path {
-            let path_str = path.display().to_string();
-            if let Some(val) = read_secret_file(&path_str, "config_file") {
-                return Some(val);
-            }
+    if let Some(creds) = cfg.credentials.as_ref() {
+        let username = creds.username_file.as_deref().and_then(read_secret_file);
+        let password = creds.password_file.as_deref().and_then(read_secret_file);
+        if let (Some(username), Some(password)) = (username, password) {
+            return Some(VpnCredentials { username, password });
         }
     }
 
     None
 }
 
-/// Read a secret from a file path; returns None (with a warning) on error.
-fn read_secret_file(path: &str, source: &str) -> Option<String> {
+/// Read a secret from a file; returns `None` (with a warning) on error or empty content.
+fn read_secret_file(path: &Path) -> Option<String> {
     match std::fs::read_to_string(path) {
         Ok(contents) => {
             let trimmed = contents.trim().to_string();
             if !trimmed.is_empty() {
                 return Some(trimmed);
             }
-            tracing::warn!(
-                file = %path,
-                source = %source,
-                "secret file exists but is empty",
-            );
+            tracing::warn!(file = %path.display(), "secret file exists but is empty");
         }
         Err(e) => {
-            tracing::warn!(
-                file = %path,
-                source = %source,
-                error = %e,
-                "could not read secret file",
-            );
+            tracing::warn!(file = %path.display(), error = %e, "could not read secret file");
         }
     }
     None
@@ -298,12 +242,6 @@ fn lookup_string(key: &str) -> Option<String> {
         "VPN_PROTOCOL" => cfg.vpn_protocol.clone(),
         "ROUTING_PROXY_BIND" => cfg.routing_proxy.as_ref().and_then(|r| r.bind.clone()),
         "PAC_SERVE_BIND" => cfg.pac_server.as_ref().and_then(|p| p.bind.clone()),
-        "PAC_PROXY_HOST" => cfg.pac_generate.as_ref().and_then(|p| p.proxy_host.clone()),
-        "PAC_SOCKS_PORT" => cfg.pac_generate.as_ref().and_then(|p| p.socks_port.clone()),
-        "PAC_PROXY_CHAIN" => cfg
-            .pac_generate
-            .as_ref()
-            .and_then(|p| p.proxy_chain.clone()),
         _ => None,
     }
 }
@@ -324,22 +262,25 @@ fn lookup_u32(key: &str) -> Option<u32> {
     let cfg = config_file::get();
     match key {
         "OCPROXY_KEEPALIVE" => cfg.ocproxy_keepalive,
-        "JUMPHOST_CHECK_INTERVAL" => cfg.check_interval.map(|v| v as u32),
         _ => None,
     }
 }
 
-/// Return the `no_headless` setting from the config file (if set).
-pub fn no_headless() -> Option<bool> {
-    config_file::get().no_headless
+pub fn no_headless() -> bool {
+    config_file::get().no_headless.unwrap_or(false)
 }
 
-/// Return the `check_interval` as f64 from the config file (if set).
-pub fn check_interval() -> Option<f64> {
-    config_file::get().check_interval
+pub fn serve_pac() -> bool {
+    config_file::get().serve_pac.unwrap_or(false)
 }
 
-/// Return the `chromium_path` from the config file (if set).
+pub fn cookie_check_interval() -> Duration {
+    let secs = config_file::get()
+        .check_interval
+        .unwrap_or(DEFAULT_CHECK_INTERVAL_SECS as f64);
+    Duration::from_secs_f64(secs.max(1.0))
+}
+
 pub fn chromium_path() -> Option<PathBuf> {
     config_file::get().chromium_path.clone()
 }

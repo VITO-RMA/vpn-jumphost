@@ -19,7 +19,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 | Component | Role |
 |---|---|
 | **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
-| **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default paths (cookie file, browser profile dir), and default ports. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The “must stay in sync” rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
+| **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
 | **`src/routing.rs`** | Routing SOCKS5 proxy (ported 1:1 from the previous standalone `routing-proxy/` crate). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
 | **`src/pac.rs`** | PAC file generation **and** built-in HTTP server (replaces the old `miniserve` dependency). Pure tokio/hyper, no external process. Generates the PAC text from the same `PROXY_DOMAINS` / `DIRECT_DOMAINS` constants and serves it on `127.0.0.1:8091` when `--serve-pac` is enabled. |
@@ -155,18 +155,18 @@ export ALL_PROXY=socks5h://127.0.0.1:1081
 **What it does:** Generates a JavaScript PAC file that instructs browsers which traffic to proxy and which to send direct.
 
 **How it works:**
-- Implemented in `src/pac.rs`. The generator reads `PROXY_DOMAINS` and `DIRECT_DOMAINS` from `src/config.rs` (the same constants the routing proxy uses), plus a proxy chain string from `PAC_PROXY_CHAIN` (default `SOCKS5 ${PAC_PROXY_HOST}:${PAC_SOCKS_PORT}; DIRECT`).
+- Implemented in `src/pac.rs`. The generator reads `PROXY_DOMAINS` and `DIRECT_DOMAINS` from `src/config.rs` (the same constants the routing proxy uses). The proxy chain is always `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT` — the same address/port the routing proxy itself listens on.
 - Domain lists (loaded from `config.toml` at startup):
   - `PROXY_DOMAINS` = configured via `[domains].proxy` in `config.toml` (no compiled-in defaults; see [`docs/config.example.toml`](docs/config.example.toml) for VITO defaults)
   - `DIRECT_DOMAINS` = configured via `[domains].direct` in `config.toml` (no compiled-in defaults)
 - Outputs a `FindProxyForURL` function with these rules (evaluated in order):
   1. Always-DIRECT domains (from `[domains].direct`; checked before DNS resolution).
-  2. Matched domains → `proxy_chain` string (default: `SOCKS5 127.0.0.1:1080; DIRECT`).
+  2. Matched domains → `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT`.
   3. Everything else → `DIRECT`.
 - Domain matching uses `host === "X" || dnsDomainIs(host, ".X")` for bare domains.
 
 **CLI:** `jumphost generate-pac [PATH]` — writes the PAC text to `PATH` if given, otherwise stdout.
-**Inputs:** `PAC_PROXY_HOST`, `PAC_SOCKS_PORT`, `PAC_PROXY_CHAIN`, output path.
+**Inputs:** `routing_proxy.bind`, `routing_proxy.port`, domain lists, output path.
 **Outputs:** A `.pac` JavaScript file.
 
 ### 4. PAC Serving (Host-Side Loopback)
@@ -186,11 +186,11 @@ export ALL_PROXY=socks5h://127.0.0.1:1081
 **How it works:**
 - Implemented in `src/cookie.rs` using the [`chromiumoxide`](https://crates.io/crates/chromiumoxide) crate, which speaks the Chrome DevTools Protocol directly over a WebSocket. **No Node.js driver is required** (the previous playwright + Firefox stack has been removed).
 - Launches the Chromium executable in **headed mode** by default (a visible browser window). Pass `--headless` or set `JUMPHOST_HEADLESS=1` to launch headless instead (no visible window). Headless mode only works when `VPN_USERNAME` + `VPN_PASSWORD` are set so the CDP automation can complete SSO without user interaction. **MFA auto-detection:** during a headless session, the poll loop distinguishes three MFA phases: (1) the **method-picker** screen ("Verify your identity" — choose Authenticator app vs. verification code) is handled automatically by clicking the "Approve a request on my Microsoft Authenticator app" option to trigger the push notification; (2) the **number-match screen** (Authenticator push — shows a number the user must tap on their phone) is handled entirely headless: the number is extracted from the page DOM and delivered as a **desktop notification** via the [`notify-rust`](https://crates.io/crates/notify-rust) crate (talks D-Bus directly on Linux, Notification Center on macOS — **no external `notify-send` binary needed**), and also logged via `tracing::info` for journal consumers; the browser stays headless and keeps polling for the cookie; (3) **interactive prompts** (TOTP code entry, phone-call verification) cannot be completed without user input, so the headless browser is closed and relaunched in headed mode for the user to type the code. The Authenticator push flow (the common case) therefore works **entirely headless** — only TOTP/interactive prompts cause a headed relaunch. The Chromium path is taken from `--chromium`, then `$CHROMIUM_PATH`, then `$CHROME`. `devenv.nix` exports `CHROMIUM_PATH=${pkgs.chromium}/bin/chromium`.
-- Uses a **persistent Chromium user-data-dir** so session state can be reused across runs (path: `--profile-dir`, then `$VPN_BROWSER_PROFILE_DIR`, default `$XDG_STATE_HOME/vpn-jumphost/chromium-profile`). Note: the directory name changed from `playwright-profile` to `chromium-profile`.
+- Uses a **persistent Chromium user-data-dir** so session state can be reused across runs (fixed path: `$XDG_STATE_HOME/vpn-jumphost/chromium-profile`). Note: the directory name changed from `playwright-profile` to `chromium-profile`.
 - Navigates to the configured `VPN_URL`; the browser presents the SAML / Microsoft SSO login flow.
 - When `VPN_USERNAME` / `VPN_PASSWORD` are set, automation handles both account-picker and credential forms via CDP.
 - Polls the browser-wide CDP cookie store (`Storage.getCookies`) for the `MRHSession` cookie (up to `--max-wait` seconds; default 300). The page-scoped `Network.getCookies` is **not** used: it returns no rows when invoked on the browser root target.
-- Writes the cookie value to `cookie_file` (configured via `cookie_file` in config.toml, default `$XDG_STATE_HOME/vpn-jumphost/cookie`), creating parent directories with `umask 077` (final file mode `600`). Status messages go to stderr via the `tracing` subscriber.
+- Writes the cookie value to the fixed cookie path (`$XDG_STATE_HOME/vpn-jumphost/cookie`), creating parent directories with `umask 077` (final file mode `600`). Status messages go to stderr via the `tracing` subscriber.
 
 **CLI flags:**
 - `--headless` — launch Chromium in headless mode (no visible window). Requires `VPN_USERNAME` + `VPN_PASSWORD` for unattended SSO. The Authenticator push MFA flow works entirely headless (the number-match value is shown as a desktop notification via `notify-rust`); only TOTP/interactive MFA prompts cause an automatic headed relaunch. Default is `false`; also settable via `JUMPHOST_HEADLESS=1`.
@@ -323,7 +323,7 @@ Ctrl-C (or `just stop`) sends SIGTERM to the `jumphost` process; the supervisor 
 
 The supervisor (`src/jumphost.rs` for `run`, `src/cookie.rs` for the primitives) reads the cookie from the configured cookie file path:
 
-1. **Cookie file** — openconnect reads the cookie directly from this file via stdin (the file is opened in `src/vpn.rs` and assigned to the child's `stdin`). Default `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/cookie`, overridable via `cookie_file` in config.toml. The wizard (and `jumphost fetch-cookie`) write here with `umask 077`.
+1. **Cookie file** — openconnect reads the cookie directly from this file via stdin (the file is opened in `src/vpn.rs` and assigned to the child's `stdin`). Fixed path: `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/cookie`. The wizard (and `jumphost fetch-cookie`) write here with `umask 077`.
 
 Before starting openconnect, the supervisor validates the cookie and auto-refreshes it if needed:
 
@@ -347,7 +347,7 @@ There is no `VPN_COOKIE` env-var fallback and no interactive stdin fallback (pro
 
 A single-process supervisor for environments where `process-compose` isn't desired — most notably as a `systemctl --user` unit (see `contrib/vpn-jumphost.service.example`) or under `nohup` via `just start-detached`. The `jumphost run` subcommand:
 
-1. Resolves the cookie path (`cookie_file` in config.toml, or the default `$XDG_STATE_HOME/vpn-jumphost/cookie`).
+1. Resolves the cookie path: `$XDG_STATE_HOME/vpn-jumphost/cookie` (fixed; not configurable).
 2. Validates the cookie via the in-process validator. Refreshes via the Chromium cookie-fetch flow on "invalid" results; on network errors keeps the existing cookie.
 3. Starts `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file connected to stdin. openconnect spawns ocproxy (SOCKS5 on `127.0.0.1:${socks_port}`) as its `--script-tun` peer. The supervisor tracks openconnect's PID and tears it down on SIGTERM/SIGINT/SIGHUP.
 4. Starts the routing proxy task on `127.0.0.1:1081` (configurable via `routing_proxy.port` in config.toml). ocproxy listens on port 1080 (configurable via `socks_port` in config.toml).
@@ -359,7 +359,7 @@ A single-process supervisor for environments where `process-compose` isn't desir
      - On any other platform, or if subscription fails (e.g. headless container, no D-Bus), it silently falls back to wall-clock skew detection only.
    - As a portable fallback (and corroboration) it also watches for wall-clock skew larger than `max(poll_interval*4, 30s)` — CLOCK_MONOTONIC stalls during Linux suspend, so a large wall-clock delta is a strong signal that we just woke up.
    - If openconnect died, it (re)starts it; if the routing proxy or PAC server task panicked, it is logged.
-   - At least every `--check-interval` seconds (default 300, configurable via `check_interval` in config.toml), it re-validates the cookie. After a resume the validation retries on network errors with exponential backoff for up to 60 s, since routing/DNS can take a couple of seconds to come back up after the laptop wakes. On a successful resume validation (cookie still valid), **the VPN is restarted unconditionally** because the TCP/TLS session to the F5 gateway is almost certainly dead after suspend (NAT entries flushed, server may have closed the connection) and openconnect's own dead-peer detection can take minutes. If a periodic (non-forced) validation hits a network error, the next short poll iteration retries within `poll_interval` rather than waiting another full `check_interval`. If validation returns "invalid", the cookie is refreshed and the VPN is restarted.
+   - At least every `check_interval` seconds (default 300, configurable via `check_interval` in config.toml), it re-validates the cookie. After a resume the validation retries on network errors with exponential backoff for up to 60 s, since routing/DNS can take a couple of seconds to come back up after the laptop wakes. On a successful resume validation (cookie still valid), **the VPN is restarted unconditionally** because the TCP/TLS session to the F5 gateway is almost certainly dead after suspend (NAT entries flushed, server may have closed the connection) and openconnect's own dead-peer detection can take minutes. If a periodic (non-forced) validation hits a network error, the next short poll iteration retries within `poll_interval` rather than waiting another full `check_interval`. If validation returns "invalid", the cookie is refreshed and the VPN is restarted.
 
 Logging uses `tracing` + `tracing-subscriber` (`src/logging.rs`) to stderr with a timestamped format. systemd captures stderr into the journal automatically. When stderr is a TTY (and `NO_COLOR` is unset), ANSI level colors are enabled; `FORCE_COLOR` overrides the TTY check, `NO_COLOR` disables it, and `RUST_LOG` (if set) overrides the `--verbose` flag entirely. The default filter also silences `chromiumoxide` below ERROR so the `WS Invalid message: data did not match any variant of untagged enum Message` noise (emitted on every Chromium CDP event the bundled protocol schema doesn't recognize) stays out of the log; `RUST_LOG=chromiumoxide=debug` (or any other directive) re-enables it. Under systemd/journald (no TTY) the formatter is plain so journalctl output isn't littered with ANSI escapes.
 
@@ -390,8 +390,6 @@ vpn_url = "https://vpn.example.com"
 vpn_protocol = "f5"
 socks_port = 1080
 ocproxy_keepalive = 60
-cookie_file = "/home/user/.local/state/vpn-jumphost/cookie"
-browser_profile_dir = "/home/user/.local/state/vpn-jumphost/chromium-profile"
 check_interval = 300
 no_headless = false
 chromium_path = "/usr/bin/chromium"
@@ -404,11 +402,6 @@ port = 1081
 [pac_server]
 bind = "127.0.0.1"
 port = 8091
-
-[pac_generate]
-proxy_host = "127.0.0.1"
-socks_port = "1081"
-proxy_chain = "SOCKS5 127.0.0.1:1081; DIRECT"
 
 [domains]
 proxy = ["example.com", "corp.local", "internal.example.com"]
@@ -427,8 +420,6 @@ password_file = "/run/secrets/vpn_pass"
 | `vpn_protocol` | string | OpenConnect protocol |
 | `socks_port` | integer | ocproxy SOCKS5 listen port |
 | `ocproxy_keepalive` | integer | TCP keepalive (seconds) for ocproxy `-k` |
-| `cookie_file` | path | Path to cookie file |
-| `browser_profile_dir` | path | Chromium user-data-dir |
 | `check_interval` | float | Supervisor cookie-check interval (seconds) |
 | `no_headless` | boolean | Disable headless cookie refresh |
 | `chromium_path` | path | Path to Chromium executable |
@@ -437,9 +428,6 @@ password_file = "/run/secrets/vpn_pass"
 | `routing_proxy.port` | integer | Routing proxy listen port |
 | `pac_server.bind` | string | PAC HTTP server bind address |
 | `pac_server.port` | integer | PAC HTTP server listen port |
-| `pac_generate.proxy_host` | string | Proxy host in generated PAC |
-| `pac_generate.socks_port` | string | SOCKS5 port in generated PAC |
-| `pac_generate.proxy_chain` | string | Full proxy chain string in PAC |
 | `domains.proxy` | array of strings | Domains routed through VPN (no compiled-in default; must be configured) |
 | `domains.direct` | array of strings | Domains always reached directly (no compiled-in default) |
 | `credentials.username` | string | VPN username (also settable via `VPN_USERNAME` env var or OS keyring) |
@@ -458,11 +446,11 @@ Most configuration is done via the config file or CLI flags. Only two environmen
 | `VPN_USERNAME` | VPN username for automated browser login. Also settable via `[credentials] username` in the config file. |
 | `VPN_PASSWORD` | VPN password for automated browser login. Also settable via `[credentials] password` in the config file. |
 
-**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > OS keyring (`jumphost authenticate`) > config file `[credentials]` table.
+**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > OS keyring (`jumphost authenticate`) > config file `[credentials]` `username_file` / `password_file`. Each source must supply both username and password; sources are never mixed.
 
 Standard system variables (`XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `RUST_LOG`, `NO_COLOR`, `FORCE_COLOR`, `PATH`) are honored as usual but are not application-specific configuration.
 
-CLI overview: `-c/--config FILE`, `--serve-pac`, `--check-interval SECONDS`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
+CLI overview: `-c/--config FILE`, `--serve-pac`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
 
 `fetch-cookie` CLI: `--headless`.
 

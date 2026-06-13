@@ -37,10 +37,9 @@ static CONFIG_PATH_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 /// vpn_protocol = "f5"
 /// socks_port = 1080
 /// ocproxy_keepalive = 60
-/// cookie_file = "/home/user/.local/state/vpn-jumphost/cookie"
-/// browser_profile_dir = "/home/user/.local/state/vpn-jumphost/chromium-profile"
 /// check_interval = 300
 /// no_headless = false
+/// serve_pac = false
 ///
 /// [routing_proxy]
 /// bind = "127.0.0.1"
@@ -49,11 +48,6 @@ static CONFIG_PATH_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 /// [pac_server]
 /// bind = "127.0.0.1"
 /// port = 8091
-///
-/// [pac_generate]
-/// proxy_host = "127.0.0.1"
-/// socks_port = "1081"
-/// proxy_chain = "SOCKS5 127.0.0.1:1081; DIRECT"
 ///
 /// [domains]
 /// proxy = ["example.com", "corp.local", "internal.example.com"]
@@ -74,14 +68,12 @@ pub struct FileConfig {
     pub socks_port: Option<u16>,
     /// ocproxy keepalive seconds.
     pub ocproxy_keepalive: Option<u32>,
-    /// Path to the cookie file.
-    pub cookie_file: Option<PathBuf>,
-    /// Chromium user-data-dir.
-    pub browser_profile_dir: Option<PathBuf>,
     /// Supervisor check interval in seconds.
     pub check_interval: Option<f64>,
     /// Never use headless mode.
     pub no_headless: Option<bool>,
+    /// Start the in-process PAC HTTP server.
+    pub serve_pac: Option<bool>,
     /// Chromium executable path.
     pub chromium_path: Option<PathBuf>,
     /// Enable debug-level (verbose) logging.
@@ -90,8 +82,6 @@ pub struct FileConfig {
     pub routing_proxy: Option<RoutingProxyConfig>,
     /// PAC HTTP server settings.
     pub pac_server: Option<PacServerConfig>,
-    /// PAC generation settings.
-    pub pac_generate: Option<PacGenerateConfig>,
     /// Domain routing lists (overrides compiled-in constants).
     pub domains: Option<DomainsConfig>,
     /// VPN credentials.
@@ -116,18 +106,6 @@ pub struct PacServerConfig {
     pub bind: Option<String>,
     /// Listen port.
     pub port: Option<u16>,
-}
-
-/// `[pac_generate]` table.
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(default)]
-pub struct PacGenerateConfig {
-    /// Proxy host for PAC generation.
-    pub proxy_host: Option<String>,
-    /// SOCKS5 port for PAC generation.
-    pub socks_port: Option<String>,
-    /// Full proxy chain string.
-    pub proxy_chain: Option<String>,
 }
 
 /// `[domains]` table.

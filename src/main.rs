@@ -11,8 +11,6 @@ mod vpn;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use tokio::signal::unix::{SignalKind, signal};
@@ -40,21 +38,21 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Store VPN credentials in the OS keyring and validate vpn login
+    Authenticate(AuthenticateArgs),
+    /// Remove stored credentials from the OS keyring and delete the
+    /// cookie file and browser profile directory.
+    Deauthenticate,
     /// Run the supervisor: openconnect + ocproxy + routing proxy +
     /// (optional) PAC server + periodic cookie check. (Default
     /// subcommand if none is given.)
     Run(RunArgs),
-    /// Fetch the F5 MRHSession cookie via a browser login window and
-    /// write it to the cookie file.
-    FetchCookie(FetchArgs),
     /// Validate the current cookie file against the VPN endpoint.
+    /// Requires authentication first
     /// Exit codes: 0 = valid, 1 = invalid, 2 = network error.
-    ValidateCookie(ValidateArgs),
+    ValidateCookie,
     /// Print the generated PAC file to stdout (or to a file).
     GeneratePac(GeneratePacArgs),
-    /// Store VPN credentials (username + password) in the OS keyring
-    /// (macOS Keychain / Linux Secret Service). Prompts interactively.
-    Authenticate(AuthenticateArgs),
     /// Send a test desktop notification to verify that the notification
     /// system is working (macOS Notification Center / Linux D-Bus).
     TestNotification,
@@ -62,14 +60,6 @@ enum Command {
 
 #[derive(Args, Debug, Default, Clone)]
 struct RunArgs {
-    /// Also start the loopback PAC HTTP server.
-    #[arg(long)]
-    serve_pac: bool,
-
-    /// Seconds between periodic cookie validity checks.
-    #[arg(long, value_name = "SECONDS")]
-    check_interval: Option<f64>,
-
     /// Disable headless cookie refresh. By default the supervisor uses
     /// headless mode when credentials are configured and shows an MFA
     /// desktop notification. This flag forces it to always open a visible
@@ -79,27 +69,12 @@ struct RunArgs {
 }
 
 #[derive(Args, Debug, Clone)]
-struct FetchArgs {
+struct AuthenticateArgs {
     /// Launch the browser in headless mode (no visible window). If an
     /// MFA/2FA prompt is detected, the browser is automatically
     /// relaunched with a visible window for user interaction.
     #[arg(long)]
     headless: bool,
-}
-
-#[derive(Args, Debug, Clone)]
-struct ValidateArgs {
-    /// Path to the cookie file. Defaults to the same path used by `run`.
-    #[arg(value_name = "PATH")]
-    cookie_file: Option<PathBuf>,
-}
-
-#[derive(Args, Debug, Clone)]
-struct AuthenticateArgs {
-    /// Delete stored credentials from the OS keyring instead of
-    /// prompting for new ones.
-    #[arg(long)]
-    delete: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -138,10 +113,10 @@ async fn main() -> ExitCode {
 
     match cli.command {
         Command::Run(args) => cmd_run(args).await,
-        Command::FetchCookie(args) => cmd_fetch(args).await,
-        Command::ValidateCookie(args) => cmd_validate(args).await,
-        Command::GeneratePac(args) => cmd_generate(args).await,
+        Command::ValidateCookie => cmd_validate().await,
+        Command::GeneratePac(args) => cmd_generate_pac(args).await,
         Command::Authenticate(args) => cmd_authenticate(args).await,
+        Command::Deauthenticate => cmd_deauthenticate().await,
         Command::TestNotification => cmd_test_notification().await,
     }
 }
@@ -149,42 +124,17 @@ async fn main() -> ExitCode {
 // ── Subcommands ───────────────────────────────────────────────────────────
 
 async fn cmd_run(args: RunArgs) -> ExitCode {
-    let cookie_file = config::default_cookie_file();
-    if let Err(e) = config::ensure_parent_dir(&cookie_file) {
-        warn!(path = %cookie_file.display(), error = %e, "could not create cookie parent dir");
-    }
-
-    let check_interval_s = args.check_interval.unwrap_or_else(|| {
-        // CLI flag not set — try config file, then default.
-        config::check_interval().unwrap_or(config::DEFAULT_CHECK_INTERVAL_SECS as f64)
-    });
-    let check_interval = Duration::from_secs_f64(check_interval_s.max(1.0));
-
-    let no_headless = if args.no_headless {
-        true
-    } else {
-        config::no_headless().unwrap_or(false)
-    };
-
     let options = SupervisorOptions {
-        cookie_file,
-        serve_pac: args.serve_pac,
-        check_interval,
-        no_headless,
+        no_headless: args.no_headless || config::no_headless(),
     };
 
-    info!(
-        cookie = %options.cookie_file.display(),
-        check_interval_s = options.check_interval.as_secs_f64(),
-        serve_pac = options.serve_pac,
-        "VPN jumphost starting"
-    );
+    info!(no_headless = options.no_headless, "VPN jumphost starting");
 
-    let supervisor = Arc::new(Supervisor::new(options));
+    let supervisor = Supervisor::new(options);
     let stop = CancellationToken::new();
     install_signal_handlers(stop.clone());
 
-    match supervisor.clone().run(stop).await {
+    match supervisor.run(stop).await {
         Ok(()) => {
             info!("jumphost: stopped cleanly");
             ExitCode::SUCCESS
@@ -196,33 +146,8 @@ async fn cmd_run(args: RunArgs) -> ExitCode {
     }
 }
 
-async fn cmd_fetch(args: FetchArgs) -> ExitCode {
-    let output = config::default_cookie_file();
-
-    let stop = CancellationToken::new();
-    install_signal_handlers(stop.clone());
-
-    let opts = FetchOptions {
-        output: Some(output.clone()),
-        headless: args.headless,
-        stop,
-        ..FetchOptions::default()
-    };
-
-    match cookie::fetch(opts).await {
-        Ok(_) => {
-            info!(path = %output.display(), "cookie saved");
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            error!(error = %e, "fetch failed");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-async fn cmd_validate(args: ValidateArgs) -> ExitCode {
-    let cookie_file = args.cookie_file.unwrap_or_else(config::default_cookie_file);
+async fn cmd_validate() -> ExitCode {
+    let cookie_file = config::cookie_file_path();
     match cookie::validate_file(&cookie_file).await {
         CookieStatus::Valid => {
             info!(path = %cookie_file.display(), "cookie is valid");
@@ -239,12 +164,12 @@ async fn cmd_validate(args: ValidateArgs) -> ExitCode {
     }
 }
 
-async fn cmd_generate(args: GeneratePacArgs) -> ExitCode {
+async fn cmd_generate_pac(args: GeneratePacArgs) -> ExitCode {
     let body = pac::generate();
     match args.output {
         Some(path) => match std::fs::write(&path, &body) {
             Ok(()) => {
-                info!(path = %path.display(), "PAC written");
+                info!(path = %path.display(), "PAC written to {}", path.display());
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -253,14 +178,7 @@ async fn cmd_generate(args: GeneratePacArgs) -> ExitCode {
             }
         },
         None => {
-            // Write to stdout.
-            use std::io::Write;
-            let stdout = std::io::stdout();
-            let mut h = stdout.lock();
-            if let Err(e) = h.write_all(body.as_bytes()) {
-                error!(error = %e, "failed to write PAC to stdout");
-                return ExitCode::FAILURE;
-            }
+            print!("{body}");
             ExitCode::SUCCESS
         }
     }
@@ -300,20 +218,6 @@ async fn cmd_test_notification() -> ExitCode {
 // ── Signal handling ──────────────────────────────────────────────────────
 
 async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
-    if args.delete {
-        match credential_store::delete_credentials() {
-            Ok(()) => {
-                eprintln!("credentials deleted from OS keyring");
-                return ExitCode::SUCCESS;
-            }
-            Err(e) => {
-                error!(error = %e, "failed to delete credentials");
-                return ExitCode::FAILURE;
-            }
-        }
-    }
-
-    // Prompt for username.
     eprint!("VPN username: ");
     let mut username = String::new();
     if let Err(e) = std::io::stdin().read_line(&mut username) {
@@ -326,7 +230,6 @@ async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    // Prompt for password (hidden input).
     let password = match rpassword::prompt_password("VPN password: ") {
         Ok(p) => p,
         Err(e) => {
@@ -339,15 +242,65 @@ async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    match credential_store::store_credentials(&username, &password) {
-        Ok(()) => {
-            eprintln!("credentials stored in OS keyring");
-            ExitCode::SUCCESS
-        }
+    if let Err(e) = credential_store::store_credentials(&username, &password) {
+        error!(error = %e, "failed to store credentials");
+        return ExitCode::FAILURE;
+    }
+    eprintln!("credentials stored in OS keyring");
+
+    let stop = CancellationToken::new();
+    install_signal_handlers(stop.clone());
+
+    let opts = FetchOptions {
+        headless: args.headless,
+        stop,
+        ..FetchOptions::default()
+    };
+
+    match cookie::fetch(opts).await {
+        Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
-            error!(error = %e, "failed to store credentials");
+            error!(error = %e, "cookie fetch failed");
             ExitCode::FAILURE
         }
+    }
+}
+
+async fn cmd_deauthenticate() -> ExitCode {
+    let mut ok = true;
+
+    match credential_store::delete_credentials() {
+        Ok(()) => eprintln!("credentials deleted from OS keyring"),
+        Err(e) => {
+            error!(error = %e, "failed to delete credentials");
+            ok = false;
+        }
+    }
+
+    let cookie_file = config::cookie_file_path();
+    match std::fs::remove_file(&cookie_file) {
+        Ok(()) => eprintln!("cookie file deleted"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            error!(error = %e, path = %cookie_file.display(), "failed to delete cookie file");
+            ok = false;
+        }
+    }
+
+    let profile_dir = config::default_browser_profile_dir();
+    match std::fs::remove_dir_all(&profile_dir) {
+        Ok(()) => eprintln!("browser profile directory deleted"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            error!(error = %e, path = %profile_dir.display(), "failed to delete browser profile directory");
+            ok = false;
+        }
+    }
+
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
 }
 

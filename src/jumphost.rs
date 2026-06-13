@@ -22,7 +22,6 @@
 //!       `last_check`, so the next short poll retries within
 //!       `poll_interval` rather than waiting another full `check_interval`.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -42,9 +41,6 @@ use crate::vpn::{self, VpnProcess};
 /// Options for [`Supervisor::run`].
 #[derive(Debug, Clone)]
 pub struct SupervisorOptions {
-    pub cookie_file: PathBuf,
-    pub serve_pac: bool,
-    pub check_interval: Duration,
     /// When `true`, never use headless mode for cookie refresh — always
     /// open a visible browser window.
     pub no_headless: bool,
@@ -87,9 +83,14 @@ impl Supervisor {
     ///   3. Start the VPN.
     ///   4. Run the monitor loop until `stop` is cancelled.
     ///   5. Shut everything down cleanly.
-    pub async fn run(self: Arc<Self>, stop: CancellationToken) -> Result<()> {
+    pub async fn run(&self, stop: CancellationToken) -> Result<()> {
+        let cookie_file = config::cookie_file_path();
+        if let Err(e) = config::ensure_parent_dir(&cookie_file) {
+            warn!(path = %cookie_file.display(), error = %e, "could not create cookie parent dir");
+        }
+
         // Step 1: cookie must be present before we ever exec openconnect.
-        if !ensure_valid_cookie(&self.options.cookie_file, &stop, self.options.no_headless).await {
+        if !ensure_valid_cookie(&cookie_file, &stop, self.options.no_headless).await {
             anyhow::bail!("could not obtain a valid VPN cookie at startup");
         }
 
@@ -106,22 +107,18 @@ impl Supervisor {
             .map(|w| Arc::clone(&w.on_resume))
             .unwrap_or_else(|| Arc::new(Notify::new()));
 
-        let monitor_self = Arc::clone(&self);
-        let monitor_stop = stop.clone();
-        let monitor_wake = Arc::clone(&wake_notify);
-        let monitor = tokio::spawn(async move {
-            monitor_self.monitor_loop(monitor_stop, monitor_wake).await;
-        });
-
-        // Wait for shutdown.
-        stop.cancelled().await;
+        // Run the monitor loop concurrently with waiting for shutdown;
+        // both exit as soon as `stop` is cancelled.
+        tokio::join!(
+            self.monitor_loop(stop.clone(), wake_notify),
+            stop.cancelled(),
+        );
 
         // Step 5: shut down everything.
         info!("supervisor: shutdown requested");
         if let Some(w) = watcher.as_ref() {
             w.cancel();
         }
-        let _ = monitor.await;
         self.shutdown().await;
         Ok(())
     }
@@ -140,7 +137,7 @@ impl Supervisor {
             *self.routing_task.lock().await = Some(handle);
         }
 
-        if self.options.serve_pac {
+        if config::serve_pac() {
             let bind = config::cfg_string("PAC_SERVE_BIND", config::DEFAULT_PAC_BIND);
             let port = config::cfg_u16("PAC_SERVE_PORT", config::DEFAULT_PAC_PORT);
             let shutdown = self.services_shutdown.clone();
@@ -163,7 +160,7 @@ impl Supervisor {
                 return Ok(());
             }
         }
-        let proc = vpn::start(&self.options.cookie_file, self.socks_port)?;
+        let proc = vpn::start(&config::cookie_file_path(), self.socks_port)?;
         *slot = Some(proc);
         Ok(())
     }
@@ -205,7 +202,7 @@ impl Supervisor {
     // ── Monitor loop ──────────────────────────────────────────────────
 
     async fn monitor_loop(&self, stop: CancellationToken, wake: Arc<Notify>) {
-        let check_interval = self.options.check_interval;
+        let check_interval = config::cookie_check_interval();
         let poll_interval =
             Duration::from_secs_f64((check_interval.as_secs_f64() / 4.0).clamp(1.0, 15.0));
         info!(
@@ -260,7 +257,7 @@ impl Supervisor {
             // VPN liveness — restart from scratch if openconnect died.
             if !self.vpn_alive().await {
                 warn!("VPN process is not running; (re)starting");
-                if ensure_valid_cookie(&self.options.cookie_file, &stop, self.options.no_headless)
+                if ensure_valid_cookie(&config::cookie_file_path(), &stop, self.options.no_headless)
                     .await
                 {
                     if let Err(e) = self.start_vpn().await {
@@ -278,13 +275,13 @@ impl Supervisor {
             if force_check || elapsed >= check_interval {
                 let rc = if force_check {
                     validate_cookie_with_retry(
-                        &self.options.cookie_file,
+                        &config::cookie_file_path(),
                         &stop,
                         Duration::from_secs(60),
                     )
                     .await
                 } else {
-                    cookie::validate_file(&self.options.cookie_file).await
+                    cookie::validate_file(&config::cookie_file_path()).await
                 };
 
                 match rc {
@@ -310,7 +307,7 @@ impl Supervisor {
                             "periodic check: cookie expired/invalid — refreshing and restarting VPN"
                         );
                         if refresh_cookie(
-                            &self.options.cookie_file,
+                            &config::cookie_file_path(),
                             &stop,
                             self.options.no_headless,
                         )
@@ -391,7 +388,6 @@ async fn refresh_cookie(
     }
 
     let mut opts = FetchOptions::default();
-    opts.output = Some(cookie_file.to_path_buf());
     opts.headless = headless;
     opts.stop = stop.clone();
     match cookie::fetch(opts).await {
