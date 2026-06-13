@@ -1,13 +1,8 @@
-//! VPN jumphost — Rust supervisor + tooling.
-//!
-//! See [`crate::jumphost`] for the core orchestration logic. The CLI is
-//! defined here.
-
 mod config;
 mod config_file;
 mod cookie;
-mod jumphost;
 mod credential_store;
+mod jumphost;
 mod logging;
 mod pac;
 mod routing;
@@ -24,15 +19,9 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::config::{
-    DEFAULT_CHECK_INTERVAL_SECS, config_file_check_interval, config_file_chromium_path,
-    config_file_no_headless, default_browser_profile_dir, default_cookie_file,
-};
 use crate::cookie::{CookieStatus, FetchOptions};
 use crate::jumphost::{Supervisor, SupervisorOptions};
 
-/// VPN jumphost: openconnect + ocproxy supervisor, routing SOCKS5 proxy,
-/// PAC server, and F5 cookie management — all in one binary.
 #[derive(Parser, Debug)]
 #[command(name = "jumphost", version, about)]
 struct Cli {
@@ -218,7 +207,7 @@ fn main() -> ExitCode {
 // ── Subcommands ───────────────────────────────────────────────────────────
 
 async fn cmd_run(args: RunArgs) -> ExitCode {
-    let cookie_file = args.cookie_file.unwrap_or_else(default_cookie_file);
+    let cookie_file = args.cookie_file.unwrap_or_else(config::default_cookie_file);
     if let Some(parent) = cookie_file.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             warn!(path = %parent.display(), error = %e, "could not create cookie parent dir");
@@ -227,14 +216,14 @@ async fn cmd_run(args: RunArgs) -> ExitCode {
 
     let check_interval_s = args.check_interval.unwrap_or_else(|| {
         // CLI flag not set — try config file, then default.
-        config_file_check_interval().unwrap_or(DEFAULT_CHECK_INTERVAL_SECS as f64)
+        config::check_interval().unwrap_or(config::DEFAULT_CHECK_INTERVAL_SECS as f64)
     });
     let check_interval = Duration::from_secs_f64(check_interval_s.max(1.0));
 
     let no_headless = if args.no_headless {
         true
     } else {
-        config_file_no_headless().unwrap_or(false)
+        config::no_headless().unwrap_or(false)
     };
 
     let options = SupervisorOptions {
@@ -268,8 +257,10 @@ async fn cmd_run(args: RunArgs) -> ExitCode {
 }
 
 async fn cmd_fetch(args: FetchArgs) -> ExitCode {
-    let output = args.output.unwrap_or_else(default_cookie_file);
-    let profile = args.profile_dir.unwrap_or_else(default_browser_profile_dir);
+    let output = args.output.unwrap_or_else(config::default_cookie_file);
+    let profile = args
+        .profile_dir
+        .unwrap_or_else(config::default_browser_profile_dir);
 
     let stop = CancellationToken::new();
     install_signal_handlers(stop.clone());
@@ -278,7 +269,7 @@ async fn cmd_fetch(args: FetchArgs) -> ExitCode {
         output: Some(output.clone()),
         profile_dir: Some(profile),
         max_wait: Duration::from_secs(args.max_wait),
-        chromium_path: args.chromium.or_else(config_file_chromium_path),
+        chromium_path: args.chromium.or_else(config::chromium_path),
         headless: args.headless,
         stop,
     };
@@ -296,7 +287,7 @@ async fn cmd_fetch(args: FetchArgs) -> ExitCode {
 }
 
 async fn cmd_validate(args: ValidateArgs) -> ExitCode {
-    let cookie_file = args.cookie_file.unwrap_or_else(default_cookie_file);
+    let cookie_file = args.cookie_file.unwrap_or_else(config::default_cookie_file);
     match cookie::validate_file(&cookie_file).await {
         CookieStatus::Valid => {
             info!(path = %cookie_file.display(), "cookie is valid");

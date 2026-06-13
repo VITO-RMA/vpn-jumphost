@@ -28,7 +28,7 @@ use reqwest::redirect::Policy as RedirectPolicy;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::config::{self, COOKIE_NAME, COOKIE_PROBE_PATH, DEFAULT_VPN_URL};
+use crate::config;
 
 /// Outcome of a cookie validation probe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,8 +69,12 @@ pub async fn validate_file(cookie_file: &Path) -> CookieStatus {
 /// gateway redirecting to the SSO login page means the cookie is expired,
 /// not valid.
 pub async fn validate_cookie(cookie: &str) -> CookieStatus {
-    let vpn_url = config::cfg_string("VPN_URL", DEFAULT_VPN_URL);
-    let probe_url = format!("{}{}", vpn_url.trim_end_matches('/'), COOKIE_PROBE_PATH);
+    let vpn_url = config::cfg_string("VPN_URL", config::DEFAULT_VPN_URL);
+    let probe_url = format!(
+        "{}{}",
+        vpn_url.trim_end_matches('/'),
+        config::COOKIE_PROBE_PATH
+    );
 
     let client = match reqwest::Client::builder()
         .redirect(RedirectPolicy::none())
@@ -87,7 +91,7 @@ pub async fn validate_cookie(cookie: &str) -> CookieStatus {
 
     let resp = client
         .get(&probe_url)
-        .header("Cookie", format!("{COOKIE_NAME}={cookie}"))
+        .header("Cookie", format!("{}={cookie}", config::COOKIE_NAME))
         .send()
         .await;
 
@@ -152,9 +156,9 @@ impl Default for FetchOptions {
     fn default() -> Self {
         Self {
             output: None,
-            profile_dir: Some(crate::config::default_browser_profile_dir()),
+            profile_dir: Some(config::default_browser_profile_dir()),
             max_wait: Duration::from_secs(300),
-            chromium_path: crate::config::config_file_chromium_path(),
+            chromium_path: config::chromium_path(),
             headless: false,
             stop: CancellationToken::new(),
         }
@@ -182,7 +186,7 @@ enum FetchOutcome {
 /// or other interactive prompt is detected, the headless browser is
 /// closed and relaunched in headed mode.
 pub async fn fetch(options: FetchOptions) -> Result<String> {
-    let vpn_url = config::cfg_string("VPN_URL", DEFAULT_VPN_URL);
+    let vpn_url = config::cfg_string("VPN_URL", config::DEFAULT_VPN_URL);
     if vpn_url.is_empty() {
         return Err(anyhow!(
             "VPN_URL is not configured — set vpn_url in the config file or export VPN_URL"
@@ -239,7 +243,7 @@ async fn launch_and_fetch(
     }
 
     if let Some(profile) = options.profile_dir.as_ref() {
-        crate::config::ensure_parent_dir(profile)
+        config::ensure_parent_dir(profile)
             .with_context(|| format!("creating profile dir parent for {}", profile.display()))?;
         builder = builder.user_data_dir(profile);
         info!(profile = %profile.display(), headless, "using persistent Chromium profile");
@@ -359,7 +363,7 @@ async fn fetch_inner(
             if !warned_invalid {
                 warn!(
                     "found {} cookie but VPN endpoint rejected it; waiting for fresh login",
-                    COOKIE_NAME
+                    config::COOKIE_NAME
                 );
                 warned_invalid = true;
             }
@@ -454,7 +458,8 @@ async fn fetch_inner(
 
         if Instant::now() >= deadline {
             return Err(anyhow!(
-                "did not find a valid {COOKIE_NAME} cookie within {:?}",
+                "did not find a valid {} cookie within {:?}",
+                config::COOKIE_NAME,
                 max_wait
             ));
         }
@@ -741,7 +746,7 @@ async fn current_mrhsession(browser: &Browser) -> Option<String> {
     match browser.get_cookies().await {
         Ok(cookies) => cookies
             .into_iter()
-            .find(|c| c.name == COOKIE_NAME && !c.value.is_empty())
+            .find(|c| c.name == config::COOKIE_NAME && !c.value.is_empty())
             .map(|c| c.value),
         Err(e) => {
             debug!(error = %e, "Storage.getCookies failed");

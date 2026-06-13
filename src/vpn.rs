@@ -16,16 +16,14 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context, Result};
-use nix::sys::signal::{kill, Signal};
+use anyhow::{Context, Result, anyhow, bail};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use tokio::process::{Child, Command};
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-use crate::config::{
-    cfg_string, cfg_u32, DEFAULT_OCPROXY_KEEPALIVE, DEFAULT_VPN_PROTOCOL, DEFAULT_VPN_URL,
-};
+use crate::config;
 
 /// Parameters captured at spawn time so [`VpnProcess`] can log them later.
 #[derive(Debug, Clone)]
@@ -125,9 +123,9 @@ pub fn start(cookie_file: &Path, socks_port: u16) -> Result<VpnProcess> {
         }
     }
 
-    let vpn_url = cfg_string("VPN_URL", DEFAULT_VPN_URL);
-    let vpn_protocol = cfg_string("VPN_PROTOCOL", DEFAULT_VPN_PROTOCOL);
-    let keepalive = cfg_u32("OCPROXY_KEEPALIVE", DEFAULT_OCPROXY_KEEPALIVE);
+    let vpn_url = config::cfg_string("VPN_URL", config::DEFAULT_VPN_URL);
+    let vpn_protocol = config::cfg_string("VPN_PROTOCOL", config::DEFAULT_VPN_PROTOCOL);
+    let keepalive = config::cfg_u32("OCPROXY_KEEPALIVE", config::DEFAULT_OCPROXY_KEEPALIVE);
 
     let script = format!("ocproxy -D {socks_port} -k {keepalive}");
     info!(

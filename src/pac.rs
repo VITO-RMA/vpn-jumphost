@@ -25,7 +25,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::config::{cfg_string, direct_domains, proxy_domains};
+use crate::config;
 
 /// PAC content-type that browsers and most proxy clients accept.
 const PAC_CONTENT_TYPE: &str = "application/x-ns-proxy-autoconfig";
@@ -68,15 +68,15 @@ fn build_direct_rules(domains: &[&str]) -> String {
 ///   - `[pac_generate] socks_port` (`1081`)
 ///   - `[pac_generate] proxy_chain` (`SOCKS5 ${proxy_host}:${socks_port}; DIRECT`)
 pub fn generate() -> String {
-    let proxy_host = cfg_string("PAC_PROXY_HOST", "127.0.0.1");
-    let socks_port = cfg_string("PAC_SOCKS_PORT", "1081");
-    let proxy_chain = cfg_string(
+    let proxy_host = config::cfg_string("PAC_PROXY_HOST", "127.0.0.1");
+    let socks_port = config::cfg_string("PAC_SOCKS_PORT", "1081");
+    let proxy_chain = config::cfg_string(
         "PAC_PROXY_CHAIN",
         &format!("SOCKS5 {proxy_host}:{socks_port}; DIRECT"),
     );
 
-    let direct = direct_domains();
-    let proxy = proxy_domains();
+    let direct = config::direct_domains();
+    let proxy = config::proxy_domains();
 
     let direct_rules = build_direct_rules(&direct.iter().map(|s| s.as_str()).collect::<Vec<_>>());
     let conditions: Vec<String> = proxy.iter().map(|d| domain_condition(d)).collect();
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn pac_mentions_each_proxy_domain() {
         let pac = generate();
-        for d in proxy_domains() {
+        for d in config::proxy_domains() {
             assert!(pac.contains(d.as_str()), "PAC should reference {d}");
         }
     }

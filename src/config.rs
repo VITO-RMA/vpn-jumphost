@@ -138,7 +138,7 @@ pub fn default_browser_profile_dir() -> PathBuf {
 
 /// Resolve a string config value: config file > compiled-in default.
 pub fn cfg_string(key: &str, default: &str) -> String {
-    if let Some(val) = config_file_string(key) {
+    if let Some(val) = lookup_string(key) {
         return val;
     }
     default.to_string()
@@ -146,7 +146,7 @@ pub fn cfg_string(key: &str, default: &str) -> String {
 
 /// Resolve a u16 config value: config file > compiled-in default.
 pub fn cfg_u16(key: &str, default: u16) -> u16 {
-    if let Some(v) = config_file_u16(key) {
+    if let Some(v) = lookup_u16(key) {
         return v;
     }
     default
@@ -154,7 +154,7 @@ pub fn cfg_u16(key: &str, default: u16) -> u16 {
 
 /// Resolve a u32 config value: config file > compiled-in default.
 pub fn cfg_u32(key: &str, default: u32) -> u32 {
-    if let Some(v) = config_file_u32(key) {
+    if let Some(v) = lookup_u32(key) {
         return v;
     }
     default
@@ -291,7 +291,7 @@ fn read_secret_file(path: &str, source: &str) -> Option<String> {
 // generic while still honoring the TOML overrides.
 
 /// Look up a string value from the config file, keyed by the env-var name.
-fn config_file_string(key: &str) -> Option<String> {
+fn lookup_string(key: &str) -> Option<String> {
     let cfg = config_file::get();
     match key {
         "VPN_URL" => cfg.vpn_url.clone(),
@@ -309,7 +309,7 @@ fn config_file_string(key: &str) -> Option<String> {
 }
 
 /// Look up a u16 value from the config file, keyed by the env-var name.
-fn config_file_u16(key: &str) -> Option<u16> {
+fn lookup_u16(key: &str) -> Option<u16> {
     let cfg = config_file::get();
     match key {
         "SOCKS_PORT" => cfg.socks_port,
@@ -320,7 +320,7 @@ fn config_file_u16(key: &str) -> Option<u16> {
 }
 
 /// Look up a u32 value from the config file, keyed by the env-var name.
-fn config_file_u32(key: &str) -> Option<u32> {
+fn lookup_u32(key: &str) -> Option<u32> {
     let cfg = config_file::get();
     match key {
         "OCPROXY_KEEPALIVE" => cfg.ocproxy_keepalive,
@@ -330,16 +330,16 @@ fn config_file_u32(key: &str) -> Option<u32> {
 }
 
 /// Return the `no_headless` setting from the config file (if set).
-pub fn config_file_no_headless() -> Option<bool> {
+pub fn no_headless() -> Option<bool> {
     config_file::get().no_headless
 }
 
 /// Return the `check_interval` as f64 from the config file (if set).
-pub fn config_file_check_interval() -> Option<f64> {
+pub fn check_interval() -> Option<f64> {
     config_file::get().check_interval
 }
 
 /// Return the `chromium_path` from the config file (if set).
-pub fn config_file_chromium_path() -> Option<PathBuf> {
+pub fn chromium_path() -> Option<PathBuf> {
     config_file::get().chromium_path.clone()
 }

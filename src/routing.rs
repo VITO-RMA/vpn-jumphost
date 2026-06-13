@@ -3,10 +3,10 @@
 //! Listens on `127.0.0.1:1081` (configurable) and routes SOCKS5 CONNECT
 //! requests:
 //!
-//! - VPN domains (matching [`crate::config::PROXY_DOMAINS`]) → upstream
+//! - VPN domains (matching [`crate::config::proxy_domains`]) → upstream
 //!   ocproxy SOCKS5 on port 1080, using ATYP 0x03 (domain name) so ocproxy
 //!   resolves DNS through the VPN.
-//! - Always-DIRECT domains (matching [`crate::config::DIRECT_DOMAINS`],
+//! - Always-DIRECT domains (matching [`crate::config::direct_domains`],
 //!   checked first) → direct.
 //! - Raw IP addresses (ATYP 0x01/0x04) → direct.
 //! - Everything else → direct.
@@ -23,7 +23,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::config::{direct_domains, proxy_domains};
+use crate::config;
 
 // ── SOCKS5 constants (RFC 1928) ─────────────────────────────────────────
 
@@ -89,13 +89,13 @@ fn route_for(target: &Target) -> Route {
             Route::Direct
         }
         Target::Domain(hostname, _) => {
-            for pat in direct_domains() {
+            for pat in config::direct_domains() {
                 if domain_matches(hostname, pat) {
                     debug!(target = %target, route = "direct", reason = "DIRECT_DOMAINS match");
                     return Route::Direct;
                 }
             }
-            for pat in proxy_domains() {
+            for pat in config::proxy_domains() {
                 if domain_matches(hostname, pat) {
                     debug!(target = %target, route = "upstream", reason = "PROXY_DOMAINS match");
                     return Route::Upstream;
@@ -429,8 +429,8 @@ pub async fn run(
     info!(
         bind = %bind_addr,
         upstream_port,
-        proxy_domains = ?proxy_domains(),
-        direct_domains = ?direct_domains(),
+        proxy_domains = ?config::proxy_domains(),
+        direct_domains = ?config::direct_domains(),
         "routing proxy listening"
     );
 
