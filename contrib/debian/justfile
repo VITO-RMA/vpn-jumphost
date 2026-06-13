@@ -1,0 +1,210 @@
+set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+
+pkg_name := "vpn-jumphost"
+service_name := "vpn-jumphost.service"
+ubuntu_image := "ubuntu:26.04"
+image := "ubuntu-deb-package-test"
+systemd_container := "ubuntu-deb-systemd-shell"
+test_user := "jumphost"
+
+debian_dir := justfile_directory()
+repo_root := debian_dir / "../.."
+pkg_cache := ".pkg-cache"
+cargo_cache := ".cargo-cache"
+
+default:
+    just --list
+
+build-image:
+    docker build -f Dockerfile.test -t {{ image }} .
+
+build-package: build-image
+    mkdir -p {{ pkg_cache }} {{ cargo_cache }}/registry {{ cargo_cache }}/git {{ cargo_cache }}/target
+
+    docker run --rm \
+        -v "{{ repo_root }}:/repo" \
+        -v "$PWD/{{ pkg_cache }}:/out" \
+        -v "$PWD/{{ cargo_cache }}/registry:/root/.cargo/registry" \
+        -v "$PWD/{{ cargo_cache }}/git:/root/.cargo/git" \
+        -v "$PWD/{{ cargo_cache }}/target:/target" \
+        {{ image }} \
+        bash -lc '\
+            set -euo pipefail; \
+            cd /repo; \
+            version="$(sed -n '\''s/^version = "\([^"]*\)"/\1/p'\'' Cargo.toml | head -1)"; \
+            control_version="$(sed -n '\''s/^Version: //p'\'' contrib/debian/control | head -1)"; \
+            test -n "$version"; \
+            test "$version" = "$control_version"; \
+            target_dir=/target; \
+            pkg_root="$(mktemp -d)"; \
+            trap '\''rm -rf "$pkg_root"'\'' EXIT; \
+            chmod 755 "$pkg_root"; \
+            cargo build --release --locked --target-dir "$target_dir"; \
+            install -d "$pkg_root/DEBIAN"; \
+            install -d "$pkg_root/usr/bin"; \
+            install -d "$pkg_root/usr/lib/systemd/user"; \
+            install -d "$pkg_root/usr/share/vpn-jumphost"; \
+            install -d "$pkg_root/usr/share/doc/vpn-jumphost"; \
+            install -m 644 contrib/debian/control "$pkg_root/DEBIAN/control"; \
+            install -m 755 contrib/debian/postinst "$pkg_root/DEBIAN/postinst"; \
+            install -m 755 contrib/debian/prerm "$pkg_root/DEBIAN/prerm"; \
+            install -m 755 contrib/debian/postrm "$pkg_root/DEBIAN/postrm"; \
+            install -m 755 "$target_dir/release/jumphost" "$pkg_root/usr/bin/jumphost"; \
+            install -m 644 contrib/debian/vpn-jumphost.service "$pkg_root/usr/lib/systemd/user/vpn-jumphost.service"; \
+            install -m 644 docs/config.example.toml "$pkg_root/usr/share/vpn-jumphost/config.example.toml"; \
+            install -m 644 README.md "$pkg_root/usr/share/doc/vpn-jumphost/README.md"; \
+            install -m 644 spec.md "$pkg_root/usr/share/doc/vpn-jumphost/spec.md"; \
+            install -m 644 docs/architecture.md "$pkg_root/usr/share/doc/vpn-jumphost/architecture.md"; \
+            install -m 644 docs/ssh.md "$pkg_root/usr/share/doc/vpn-jumphost/ssh.md"; \
+            install -m 644 contrib/debian/copyright "$pkg_root/usr/share/doc/vpn-jumphost/copyright"; \
+            gzip -9n -c contrib/debian/changelog > "$pkg_root/usr/share/doc/vpn-jumphost/changelog.gz"; \
+            dpkg-deb --build "$pkg_root" "/out/{{ pkg_name }}_${version}_amd64.deb"; \
+            dpkg-deb --info "/out/{{ pkg_name }}_${version}_amd64.deb"; \
+            dpkg-deb --contents "/out/{{ pkg_name }}_${version}_amd64.deb" \
+        '
+
+lintian: build-package
+    docker run --rm \
+        -v "$PWD/{{ pkg_cache }}:/pkgs" \
+        {{ image }} \
+        bash -lc '\
+            set -euo pipefail; \
+            lintian /pkgs/{{ pkg_name }}_*.deb \
+        '
+
+test-install: build-package
+    docker run --rm \
+        -e DEBIAN_FRONTEND=noninteractive \
+        -v "$PWD/{{ pkg_cache }}:/pkgs" \
+        {{ ubuntu_image }} \
+        bash -lc '\
+            set -euo pipefail; \
+            rm -f /etc/dpkg/dpkg.cfg.d/excludes; \
+            apt-get update; \
+            apt-get install -y --no-install-recommends /pkgs/{{ pkg_name }}_*.deb; \
+            dpkg -s {{ pkg_name }}; \
+            dpkg -L {{ pkg_name }}; \
+            dpkg -V {{ pkg_name }}; \
+            test -x /usr/bin/jumphost; \
+            /usr/bin/jumphost --help >/tmp/jumphost-help.txt; \
+            grep -q "^Usage:" /tmp/jumphost-help.txt; \
+            test -f /usr/lib/systemd/user/{{ service_name }}; \
+            grep -q "^ExecStart=/usr/bin/jumphost run --serve-pac$" /usr/lib/systemd/user/{{ service_name }}; \
+            test -f /usr/share/vpn-jumphost/config.example.toml; \
+            test -f /usr/share/doc/{{ pkg_name }}/README.md; \
+            if command -v systemd-analyze >/dev/null 2>&1; then \
+                systemd-analyze verify --man=no /usr/lib/systemd/user/{{ service_name }}; \
+            fi; \
+            echo "Ubuntu 26.04 install-level package test passed." \
+        '
+
+show-execstart: build-package
+    docker run --rm \
+        -e DEBIAN_FRONTEND=noninteractive \
+        -v "$PWD/{{ pkg_cache }}:/pkgs" \
+        {{ ubuntu_image }} \
+        bash -lc '\
+            set -euo pipefail; \
+            apt-get update; \
+            apt-get install -y --no-install-recommends /pkgs/{{ pkg_name }}_*.deb; \
+            grep "^ExecStart=" /usr/lib/systemd/user/{{ service_name }} \
+        '
+
+shell-systemd: build-package
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    docker rm -f {{ systemd_container }} >/dev/null 2>&1 || true
+
+    docker run -d \
+        --name {{ systemd_container }} \
+        --privileged \
+        --cgroupns=host \
+        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+        -v "$PWD/{{ pkg_cache }}:/pkgs" \
+        {{ image }} \
+        /usr/lib/systemd/systemd >/dev/null
+
+    docker exec \
+        -e DEBIAN_FRONTEND=noninteractive \
+        {{ systemd_container }} \
+        bash -lc '\
+            set -euo pipefail; \
+            rm -f /etc/dpkg/dpkg.cfg.d/excludes; \
+            apt-get update; \
+            apt-get install -y --no-install-recommends /pkgs/{{ pkg_name }}_*.deb; \
+            if ! id -u {{ test_user }} >/dev/null 2>&1; then \
+                useradd -m -s /bin/bash {{ test_user }}; \
+            fi; \
+            uid="$(id -u {{ test_user }})"; \
+            install -d -m 700 -o {{ test_user }} -g {{ test_user }} "/run/user/$uid"; \
+            install -d -m 755 -o {{ test_user }} -g {{ test_user }} /home/{{ test_user }}/.config; \
+            install -d -m 700 -o {{ test_user }} -g {{ test_user }} /home/{{ test_user }}/.config/vpn-jumphost; \
+            install -m 644 -o {{ test_user }} -g {{ test_user }} \
+                /usr/share/vpn-jumphost/config.example.toml \
+                /home/{{ test_user }}/.config/vpn-jumphost/config.toml; \
+            chromium_bin=""; \
+            for candidate in chromium chromium-browser google-chrome-stable; do \
+                if command -v "$candidate" >/dev/null 2>&1; then \
+                    chromium_bin="$(command -v "$candidate")"; \
+                    break; \
+                fi; \
+            done; \
+            if [ -n "$chromium_bin" ]; then \
+                sed -i "s|^# chromium_path = .*|chromium_path = \"$chromium_bin\"|" \
+                    /home/{{ test_user }}/.config/vpn-jumphost/config.toml; \
+            fi; \
+            loginctl enable-linger {{ test_user }} || true; \
+            systemctl start "user@$uid.service"; \
+            printf "%s\n" \
+                "export JUMPHOST_TEST_USER={{ test_user }}" \
+                "export JUMPHOST_TEST_UID=$uid" \
+                "export JUMPHOST_TEST_RUNTIME_DIR=/run/user/$uid" \
+                "alias userctl=\"systemctl --user\"" \
+                "alias userjournal=\"journalctl --user\"" \
+                "alias logs=\"journalctl --user -u {{ service_name }} -n 100 --no-pager\"" \
+                "alias status=\"systemctl --user status {{ service_name }} --no-pager\"" \
+                "alias start-service=\"systemctl --user start {{ service_name }}\"" \
+                > /root/.bashrc; \
+            install -m 644 -o {{ test_user }} -g {{ test_user }} /root/.bashrc /home/{{ test_user }}/.bashrc; \
+        '
+
+    echo "Ubuntu 26.04 systemd container '{{ systemd_container }}' is running with {{ pkg_name }} installed."
+    echo "Opening a {{ test_user }} user shell where systemctl --user targets the service manager."
+    echo "Useful commands:"
+    echo "  systemctl --user daemon-reload"
+    echo "  systemctl --user start {{ service_name }}"
+    echo "  systemctl --user status {{ service_name }} --no-pager"
+    echo "  journalctl --user -u {{ service_name }} -n 100 --no-pager"
+    echo "  vi ~/.config/vpn-jumphost/config.toml"
+    echo "Root shell from another terminal: docker exec -it {{ systemd_container }} bash -l"
+    echo "Cleanup from another shell: just clean-systemd-container"
+
+    test_uid="$(docker exec {{ systemd_container }} id -u {{ test_user }})"
+    docker exec -it \
+        --user {{ test_user }} \
+        -e XDG_RUNTIME_DIR="/run/user/$test_uid" \
+        -w /home/{{ test_user }} \
+        {{ systemd_container }} \
+        bash -l
+
+shell: shell-systemd
+
+clean-systemd-container:
+    -docker rm -f {{ systemd_container }}
+
+clean-packages:
+    rm -f {{ pkg_cache }}/*.deb
+
+clean-cache:
+    rm -rf {{ cargo_cache }}
+
+clean: clean-systemd-container clean-packages
+
+distclean: clean clean-cache
+
+test: test-install
+
+test-full: test-install lintian
+
+rebuild: clean build-package

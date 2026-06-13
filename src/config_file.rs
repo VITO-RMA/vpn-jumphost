@@ -84,7 +84,8 @@ pub struct FileConfig {
     pub no_headless: Option<bool>,
     /// Chromium executable path.
     pub chromium_path: Option<PathBuf>,
-
+    /// Enable debug-level (verbose) logging.
+    pub verbose: Option<bool>,
     /// Routing proxy settings.
     pub routing_proxy: Option<RoutingProxyConfig>,
     /// PAC HTTP server settings.

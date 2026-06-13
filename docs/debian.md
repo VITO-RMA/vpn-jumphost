@@ -2,7 +2,34 @@
 
 The project ships Debian packaging files at [`contrib/debian/`](../contrib/debian/) for building a `.deb` package. The package installs the `jumphost` binary to `/usr/bin/jumphost` along with a systemd user unit, example config, and documentation — the same contents as the [Arch Linux package](arch.md).
 
-## Building the `.deb`
+## Local Docker test setup
+
+The Debian packaging directory includes a Docker-based test harness similar to the Arch Linux package harness:
+
+```bash
+cd contrib/debian
+just build-package      # build vpn-jumphost_<version>_amd64.deb into .pkg-cache/
+just test-install       # install the .deb in a clean ubuntu:26.04 container
+just test-full          # install test plus lintian
+just shell              # interactive Ubuntu 26.04 systemd shell with the .deb installed
+```
+
+The harness uses [`ubuntu:26.04`](https://documentation.ubuntu.com/release-notes/26.04/) as the latest stable Ubuntu target. `build-package` compiles the Rust binary, stages the package tree, builds the `.deb`, and prints `dpkg-deb --info` / `--contents`. `test-install` then starts a fresh Ubuntu 26.04 container and installs the local `.deb` with apt so package dependencies are resolved normally. It verifies the installed binary, systemd user unit, example config, documentation files, package database, and unit syntax.
+
+`just shell` starts a privileged Ubuntu 26.04 container with systemd as PID 1, installs the generated package, creates a `jumphost` test user with a copied config file, starts that user's systemd manager, and opens an interactive `jumphost` user shell with `XDG_RUNTIME_DIR` set. In that shell, plain `systemctl --user ...` and `journalctl --user ...` target the test user's service manager:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start vpn-jumphost.service
+systemctl --user status vpn-jumphost.service --no-pager
+journalctl --user -u vpn-jumphost.service -n 100 --no-pager
+```
+
+The shell also defines short aliases: `start-service`, `status`, and `logs`. For a root shell into the same container, run `docker exec -it ubuntu-deb-systemd-shell bash -l` from another terminal. Stop and remove the shell container with `just clean-systemd-container`.
+
+Generated packages are written to `contrib/debian/.pkg-cache/`. Cargo registry/git/build caches live under `contrib/debian/.cargo-cache/` and can be removed with `just distclean`.
+
+## Building the `.deb` manually
 
 The intended build method uses `dpkg-deb --build` after staging the package tree. A typical build session on Ubuntu 26.04 would look like:
 
@@ -30,6 +57,8 @@ install -m 644 README.md                               "$PKG/usr/share/doc/vpn-j
 install -m 644 spec.md                                 "$PKG/usr/share/doc/vpn-jumphost/spec.md"
 install -m 644 docs/architecture.md                    "$PKG/usr/share/doc/vpn-jumphost/architecture.md"
 install -m 644 docs/ssh.md                             "$PKG/usr/share/doc/vpn-jumphost/ssh.md"
+install -m 644 contrib/debian/copyright                "$PKG/usr/share/doc/vpn-jumphost/copyright"
+gzip -9n -c contrib/debian/changelog > "$PKG/usr/share/doc/vpn-jumphost/changelog.gz"
 
 # Build the .deb
 dpkg-deb --build "$PKG" vpn-jumphost_0.2.0_amd64.deb
@@ -53,12 +82,14 @@ sudo apt-get install -f   # resolve any missing dependencies
 | `/usr/share/doc/vpn-jumphost/spec.md` | `spec.md` |
 | `/usr/share/doc/vpn-jumphost/architecture.md` | `docs/architecture.md` |
 | `/usr/share/doc/vpn-jumphost/ssh.md` | `docs/ssh.md` |
+| `/usr/share/doc/vpn-jumphost/copyright` | `contrib/debian/copyright` |
+| `/usr/share/doc/vpn-jumphost/changelog.gz` | `contrib/debian/changelog` |
 
 ## Dependencies
 
 | Field | Packages | Notes |
 |---|---|---|
-| `Depends` | `openconnect`, `ocproxy`, `chromium \| chromium-browser` | Required at runtime. `ocproxy` is available in Ubuntu/Debian repos (unlike Arch where it's AUR-only). `chromium` is the Ubuntu package name; `chromium-browser` covers derivatives. |
+| `Depends` | `libc6 (>= 2.43)`, `openconnect`, `ocproxy`, `chromium \| chromium-browser \| google-chrome-stable` | Required at runtime. `ocproxy` is available in Ubuntu/Debian repos (unlike Arch where it's AUR-only). Any Chromium-compatible browser satisfies the dependency. In Docker containers where snap-based Chromium is unavailable, install `google-chrome-stable` instead (the `Dockerfile.test` build image does this automatically). |
 | Build-time | `cargo` (Rust toolchain) | Not declared in the control file — handled by the CI workflow. |
 
 ## Post-install setup
@@ -96,7 +127,7 @@ The package installs a production-ready systemd **user** unit to `/usr/lib/syste
 ExecStart=/usr/bin/jumphost run --serve-pac
 ```
 
-No path customization is needed — the binary and its runtime dependencies (`openconnect`, `ocproxy`, `chromium`) are all on the system `PATH` after package installation. The unit is `Type=simple` with `Restart=on-failure` and sends `SIGTERM` for clean shutdown.
+No path customization is needed — the binary and its runtime dependencies (`openconnect`, `ocproxy`, and a Chromium-compatible browser) are all on the system `PATH` after package installation. If the installed browser is `google-chrome-stable` rather than `chromium`, set `chromium_path` in `config.toml` (or let `chromiumoxide` auto-detect it). The unit is `Type=simple` with `Restart=on-failure` and sends `SIGTERM` for clean shutdown.
 
 Configuration is done entirely through the TOML config file at `~/.config/vpn-jumphost/config.toml` (or via `-c /path/to/config.toml`). See [`config.example.toml`](config.example.toml) for the full schema.
 
@@ -129,11 +160,17 @@ systemctl --user disable vpn-jumphost.service
 
 The GitHub Actions workflow at [`.github/workflows/deb.yml`](../.github/workflows/deb.yml) builds the `.deb` automatically on every push to `main` and on pull requests. It runs inside an `ubuntu:26.04` container, builds the binary with `cargo build --release --locked`, runs tests, stages the package tree, and uploads the resulting `.deb` as a build artefact.
 
+For local preflight, use the Docker harness above; it additionally verifies installation of the generated `.deb` in a clean Ubuntu 26.04 container.
+
 ## Package files
 
 | File | Role |
 |---|---|
+| [`contrib/debian/Dockerfile.test`](../contrib/debian/Dockerfile.test) | Ubuntu 26.04 build image for local package tests |
+| [`contrib/debian/justfile`](../contrib/debian/justfile) | Local Docker recipes for building, linting, and install-testing the `.deb` |
 | [`contrib/debian/control`](../contrib/debian/control) | Debian package metadata and dependencies |
+| [`contrib/debian/changelog`](../contrib/debian/changelog) | Debian package changelog, compressed into `/usr/share/doc/vpn-jumphost/changelog.gz` |
+| [`contrib/debian/copyright`](../contrib/debian/copyright) | Debian copyright metadata |
 | [`contrib/debian/vpn-jumphost.service`](../contrib/debian/vpn-jumphost.service) | Systemd user unit |
 | [`contrib/debian/postinst`](../contrib/debian/postinst) | Post-install script (setup instructions) |
 | [`contrib/debian/prerm`](../contrib/debian/prerm) | Pre-remove script (service reminder) |

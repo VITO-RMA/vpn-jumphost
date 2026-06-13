@@ -7,7 +7,7 @@ Description: VPN jumphost: OpenConnect+ocproxy supervisor with routing SOCKS5 pr
  OpenConnect, exposes a routing SOCKS5 proxy with per-domain VPN-vs-direct
  routing, serves a PAC file, and manages F5 session cookies via Chromium CDP.
  Everything runs as a normal user — no sudo, no TUN device, no namespace.
-Depends: openconnect, ocproxy, chromium | chromium-browser
+Depends: libc6 (>= 2.43), openconnect, ocproxy, chromium | chromium-browser | google-chrome-stable
 Section: net
 Priority: optional
 Homepage: https://github.com/USER/vpn-jumphost

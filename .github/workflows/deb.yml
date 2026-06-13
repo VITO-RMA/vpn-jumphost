@@ -72,6 +72,8 @@ jobs:
           install -m 644 spec.md                               "$pkg/usr/share/doc/vpn-jumphost/spec.md"
           install -m 644 docs/architecture.md                  "$pkg/usr/share/doc/vpn-jumphost/architecture.md"
           install -m 644 docs/ssh.md                           "$pkg/usr/share/doc/vpn-jumphost/ssh.md"
+          install -m 644 contrib/debian/copyright              "$pkg/usr/share/doc/vpn-jumphost/copyright"
+          gzip -9n -c contrib/debian/changelog > "$pkg/usr/share/doc/vpn-jumphost/changelog.gz"
 
       - name: Build .deb
         run: |

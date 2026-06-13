@@ -372,6 +372,7 @@ browser_profile_dir = "/home/user/.local/state/vpn-jumphost/chromium-profile"
 check_interval = 300
 no_headless = false
 chromium_path = "/usr/bin/chromium"
+verbose = false
 
 [routing_proxy]
 bind = "127.0.0.1"
@@ -408,6 +409,7 @@ password_file = "/run/secrets/vpn_pass"
 | `check_interval` | float | Supervisor cookie-check interval (seconds) |
 | `no_headless` | boolean | Disable headless cookie refresh |
 | `chromium_path` | path | Path to Chromium executable |
+| `verbose` | boolean | Enable debug-level (verbose) logging (same as `--verbose`) |
 | `routing_proxy.bind` | string | Routing proxy bind address |
 | `routing_proxy.port` | integer | Routing proxy listen port |
 | `pac_server.bind` | string | PAC HTTP server bind address |
@@ -481,8 +483,8 @@ A `flake.nix` is also available at the project root. It builds the `jumphost` bi
 
 ## Open Questions / Ambiguities
 
-### 1. No automated tests or CI
-The Rust crate has a `cargo test --release` recipe (`just test`), but there are no integration tests against a real VPN endpoint and no CI/CD pipeline. Correctness of the VPN flow is verified manually.
+### 1. No real VPN integration tests
+The Rust crate has a `cargo test --release` recipe (`just test`), CI builds/tests the Rust crate and Debian package, and local Docker harnesses verify the Arch and Debian package install surfaces. There are still no integration tests against a real F5 VPN endpoint. Correctness of the live VPN login/tunnel flow is verified manually.
 
 ### 3. No IPv6 support
 All configurations and PAC rules are IPv4-only. IPv6 addresses and networks are not addressed.

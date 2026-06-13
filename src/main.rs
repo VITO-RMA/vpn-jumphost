@@ -94,6 +94,7 @@ struct RunArgs {
     /// it to always open a visible browser window instead.
     #[arg(long)]
     no_headless: bool,
+
 }
 
 #[derive(Args, Debug, Clone)]
@@ -121,6 +122,7 @@ struct FetchArgs {
     /// relaunched with a visible window for user interaction.
     #[arg(long)]
     headless: bool,
+
 }
 
 #[derive(Args, Debug, Clone)]
@@ -162,7 +164,7 @@ fn main() -> ExitCode {
         config_file::set_path(path.clone());
     }
 
-    logging::init(cli.verbose);
+    logging::init(cli.verbose || config_file::get().verbose.unwrap_or(false));
 
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
