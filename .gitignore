@@ -27,3 +27,4 @@ venv.bak/
 /contrib/archlinux/pkg
 /contrib/debian/.pkg-cache
 /contrib/debian/.cargo-cache
+/contrib/macos/.pkg-cache

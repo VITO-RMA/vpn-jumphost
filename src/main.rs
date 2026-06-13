@@ -19,13 +19,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::config::{
-    config_file_check_interval, config_file_chromium_path, config_file_no_headless,
-    default_browser_profile_dir, default_cookie_file, DEFAULT_CHECK_INTERVAL_SECS,
+    DEFAULT_CHECK_INTERVAL_SECS, config_file_check_interval, config_file_chromium_path,
+    config_file_no_headless, default_browser_profile_dir, default_cookie_file,
 };
 use crate::cookie::{CookieStatus, FetchOptions};
 use crate::jumphost::{Supervisor, SupervisorOptions};
@@ -73,6 +73,9 @@ enum Command {
     /// this as a separate systemd user unit if you want the URL to
     /// survive jumphost restarts.
     ServePac(ServePacArgs),
+    /// Send a test desktop notification to verify that the notification
+    /// system is working (macOS Notification Center / Linux D-Bus).
+    TestNotification,
 }
 
 #[derive(Args, Debug, Default, Clone)]
@@ -94,7 +97,6 @@ struct RunArgs {
     /// it to always open a visible browser window instead.
     #[arg(long)]
     no_headless: bool,
-
 }
 
 #[derive(Args, Debug, Clone)]
@@ -122,7 +124,6 @@ struct FetchArgs {
     /// relaunched with a visible window for user interaction.
     #[arg(long)]
     headless: bool,
-
 }
 
 #[derive(Args, Debug, Clone)]
@@ -166,6 +167,16 @@ fn main() -> ExitCode {
 
     logging::init(cli.verbose || config_file::get().verbose.unwrap_or(false));
 
+    // On macOS, CLI binaries have no bundle identifier, so
+    // NSUserNotificationCenter silently drops notifications.  Register
+    // one so MFA number-match notifications actually appear.
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(e) = notify_rust::set_application("sas.vpn-jumphost") {
+            warn!(error = %e, "could not set macOS notification bundle id");
+        }
+    }
+
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -184,6 +195,7 @@ fn main() -> ExitCode {
             Command::ValidateCookie(args) => cmd_validate(args).await,
             Command::GeneratePac(args) => cmd_generate(args).await,
             Command::ServePac(args) => cmd_serve_pac(args).await,
+            Command::TestNotification => cmd_test_notification().await,
         }
     });
 
@@ -323,6 +335,37 @@ async fn cmd_serve_pac(args: ServePacArgs) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             error!(error = %e, "PAC server exited with error");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn cmd_test_notification() -> ExitCode {
+    eprintln!("sending test notification...");
+    match tokio::task::spawn_blocking(|| {
+        let mut n = notify_rust::Notification::new();
+        n.summary("VPN Jumphost")
+            .body("Test notification — if you see this, notifications are working!")
+            .appname("jumphost");
+        #[cfg(target_os = "linux")]
+        {
+            n.icon("dialog-information")
+                .urgency(notify_rust::Urgency::Normal);
+        }
+        n.show()
+    })
+    .await
+    {
+        Ok(Ok(_)) => {
+            eprintln!("notification sent successfully");
+            ExitCode::SUCCESS
+        }
+        Ok(Err(e)) => {
+            error!(error = %e, "failed to send notification");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            error!(error = %e, "notification task panicked");
             ExitCode::FAILURE
         }
     }

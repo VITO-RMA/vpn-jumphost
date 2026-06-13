@@ -309,7 +309,9 @@ impl Supervisor {
                     }
                     CookieStatus::Invalid => {
                         last_check = now_mono;
-                        info!("periodic check: cookie expired/invalid — refreshing and restarting VPN");
+                        info!(
+                            "periodic check: cookie expired/invalid — refreshing and restarting VPN"
+                        );
                         if refresh_cookie(
                             &self.options.cookie_file,
                             &stop,
@@ -383,9 +385,6 @@ async fn refresh_cookie(
     // On macOS, always use headed mode — headless Chrome has issues with
     // DeviceAuthTls flows and the MFA approval screen is easier to handle
     // when the user can see the browser window.
-    #[cfg(target_os = "macos")]
-    let headless = false;
-    #[cfg(not(target_os = "macos"))]
     let headless = has_credentials && !no_headless;
 
     if headless {

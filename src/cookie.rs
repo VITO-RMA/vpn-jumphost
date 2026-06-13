@@ -410,9 +410,9 @@ async fn fetch_inner(
                     // Show the number via desktop notification (once).
                     if notified_number.as_deref() != Some(num) {
                         eprintln!();
-                        eprintln!("  ╔══════════════════════════════════════╗");
-                        eprintln!("  ║  MFA: approve this number  →  {num:>3}   ║");
-                        eprintln!("  ╚══════════════════════════════════════╝");
+                        eprintln!("  ╔═══════════════════════════════════════╗");
+                        eprintln!("  ║  MFA: approve this number  ->  {num:>3}    ║");
+                        eprintln!("  ╚═══════════════════════════════════════╝");
                         eprintln!();
                         info!(number = %num, "MFA: approve sign-in request with this number");
                         mfa_notification.set(send_mfa_notification(num).await);
@@ -614,14 +614,11 @@ async fn click_authenticator_option(page: &chromiumoxide::Page) {
 
 /// Handle type for a revocable desktop notification.
 ///
-/// On Linux, `notify_rust::NotificationHandle` lets us close (revoke)
-/// the notification over D-Bus.  On other platforms notifications
-/// cannot be revoked programmatically (e.g. macOS osascript), so we
-/// use `()` as a no-op stand-in.
-#[cfg(target_os = "linux")]
+/// On Linux, `notify_rust::NotificationHandle::close()` lets us revoke
+/// the notification over D-Bus.  On macOS the handle is a no-op wrapper
+/// (mac-notification-sys doesn't support programmatic dismissal), but
+/// we still get a uniform API surface.
 type NotifHandle = notify_rust::NotificationHandle;
-#[cfg(not(target_os = "linux"))]
-type NotifHandle = ();
 
 /// Guard that closes a desktop notification when dropped or explicitly
 /// closed.  Ensures the MFA number-match notification is dismissed once
@@ -647,6 +644,9 @@ impl NotificationGuard {
             // `CloseNotification` message.  It uses zbus's blocking
             // `block_on` internally, which panics when called from
             // within a tokio runtime — spawn a short-lived thread.
+            // On macOS, the handle has no `close()` method (the
+            // mac-notification-sys backend doesn't support it), so
+            // we just drop it.
             #[cfg(target_os = "linux")]
             {
                 let _ = std::thread::Builder::new()
@@ -671,64 +671,33 @@ impl Drop for NotificationGuard {
 /// Show the MFA number-match code as a desktop notification so the user
 /// can approve on their phone even when the browser is headless.
 ///
-/// On Linux, uses the [`notify_rust`] crate which talks D-Bus directly
-/// — no external binary needed.  Returns a [`NotifHandle`] so the
-/// caller can close (revoke) the notification once login succeeds.
-///
-/// On macOS, uses `osascript` which reliably delivers notifications
-/// from CLI apps (mac-notification-sys often fails silently because
-/// the binary has no bundle identifier).  osascript notifications
-/// cannot be revoked, so `None` is always returned.
+/// Uses [`notify_rust`] on all platforms (D-Bus on Linux,
+/// `mac-notification-sys` on macOS).  Returns a [`NotifHandle`] so the
+/// caller can close (revoke) the notification once login succeeds
+/// (revocation is only effective on Linux; macOS drops the handle as a
+/// no-op).
 ///
 /// Failures are logged but not fatal; the number is also emitted via
 /// `tracing::info` for journal/log consumers.
 async fn send_mfa_notification(number: &str) -> Option<NotifHandle> {
     let number = number.to_owned();
     tokio::task::spawn_blocking(move || {
-        // On macOS, use osascript which reliably delivers notifications
-        // from CLI apps.
-        #[cfg(target_os = "macos")]
-        {
-            let script = format!(
-                "display notification \"{}\" with title \"VPN sign-in: approve this number\"",
-                number
-            );
-            match std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(&script)
-                .output()
-            {
-                Ok(out) if out.status.success() => {
-                    info!(number = %number, "sent MFA desktop notification (osascript)");
-                }
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    warn!(
-                        error = %stderr,
-                        number = %number,
-                        "desktop notification failed; approve the number shown in the log"
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        number = %number,
-                        "desktop notification failed; approve the number shown in the log"
-                    );
-                }
-            }
-            return None;
-        }
-
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             let mut notification = notify_rust::Notification::new();
             notification
                 .summary("VPN sign-in: approve this number")
                 .body(&number)
                 .icon("dialog-password")
-                .appname("jumphost")
-                .urgency(notify_rust::Urgency::Critical);
+                .appname("jumphost");
+
+            // Urgency hints are a freedesktop.org concept; they are
+            // silently ignored on macOS.
+            #[cfg(target_os = "linux")]
+            {
+                notification.urgency(notify_rust::Urgency::Critical);
+            }
+
             match notification.show() {
                 Ok(handle) => {
                     info!(number = %number, "sent MFA desktop notification");

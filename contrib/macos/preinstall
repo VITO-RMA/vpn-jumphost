@@ -1,0 +1,25 @@
+#!/bin/bash
+# preinstall — stop the running launchd agent (if any) before overwriting files.
+set -e
+
+LABEL="sas.vpn-jumphost"
+
+# Resolve the real (console) user — the installer runs as root.
+REAL_USER="$(scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ { print $3 }')"
+if [ -z "$REAL_USER" ] || [ "$REAL_USER" = "loginwindow" ]; then
+    REAL_USER="${SUDO_USER:-}"
+fi
+if [ -z "$REAL_USER" ]; then
+    exit 0
+fi
+
+REAL_UID="$(id -u "$REAL_USER")"
+REAL_HOME="$(eval echo "~$REAL_USER")"
+PLIST="$REAL_HOME/Library/LaunchAgents/${LABEL}.plist"
+
+if [ -f "$PLIST" ]; then
+    # bootout is idempotent — it won't error if the agent isn't loaded.
+    launchctl bootout "gui/$REAL_UID" "$PLIST" 2>/dev/null || true
+fi
+
+exit 0

@@ -1,0 +1,88 @@
+#!/bin/bash
+# postinstall — register the .app bundle, install the launchd agent, and
+#               start the service.
+#
+# macOS pkg postinstall scripts run as root.  We need the real console
+# user for LaunchAgents, config files, and launchctl bootstrap.
+set -e
+
+LABEL="sas.vpn-jumphost"
+PLIST_SRC="/usr/local/share/vpn-jumphost/${LABEL}.plist"
+APP="/Applications/Jumphost.app"
+EXAMPLE="/usr/local/share/vpn-jumphost/config.example.toml"
+
+# ── Resolve the real (console) user ─────────────────────────────────
+# The installer runs as root, so $HOME / $(id -u) point to root.
+# scutil gives us the GUI-session user who double-clicked the .pkg.
+REAL_USER="$(scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ { print $3 }')"
+if [ -z "$REAL_USER" ] || [ "$REAL_USER" = "loginwindow" ]; then
+    # Fallback: SUDO_USER is set when invoked via `sudo installer`.
+    REAL_USER="${SUDO_USER:-}"
+fi
+if [ -z "$REAL_USER" ]; then
+    echo "warning: could not determine the real user; skipping per-user setup." >&2
+    exit 0
+fi
+
+REAL_UID="$(id -u "$REAL_USER")"
+REAL_HOME="$(eval echo "~$REAL_USER")"
+CONFIG_DIR="$REAL_HOME/.config/vpn-jumphost"
+PLIST_DST="$REAL_HOME/Library/LaunchAgents/${LABEL}.plist"
+
+# ── .app bundle registration ────────────────────────────────────────
+# The Jumphost.app bundle is a thin wrapper: its MacOS/jumphost is a
+# symlink to /usr/local/bin/jumphost.  We need Launch Services to know
+# about the bundle so mac-notification-sys can resolve the bundle
+# identifier and deliver notifications under the "Jumphost" name.
+if [ -d "$APP" ]; then
+    LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    if [ -x "$LSREGISTER" ]; then
+        "$LSREGISTER" -f "$APP" 2>/dev/null || true
+    fi
+fi
+
+# ── Example config ──────────────────────────────────────────────────
+if [ ! -f "$CONFIG_DIR/config.toml" ] && [ -f "$EXAMPLE" ]; then
+    sudo -u "$REAL_USER" mkdir -p "$CONFIG_DIR"
+    sudo -u "$REAL_USER" cp "$EXAMPLE" "$CONFIG_DIR/config.toml"
+    echo "  Created $CONFIG_DIR/config.toml from example."
+    echo "  Edit it before starting the service."
+fi
+
+# ── launchd agent ───────────────────────────────────────────────────
+sudo -u "$REAL_USER" mkdir -p "$REAL_HOME/Library/LaunchAgents"
+install -m 644 -o "$REAL_USER" "$PLIST_SRC" "$PLIST_DST"
+
+# Load and start the agent as the real user.
+launchctl bootstrap "gui/$REAL_UID" "$PLIST_DST" 2>/dev/null || true
+
+echo ""
+echo "══════════════════════════════════════════════════════════════"
+echo "  VPN Jumphost installed"
+echo "══════════════════════════════════════════════════════════════"
+echo ""
+echo "  Binary:      /usr/local/bin/jumphost"
+echo "  App bundle:  /Applications/Jumphost.app"
+echo "  Agent:       ~/Library/LaunchAgents/${LABEL}.plist"
+echo "  Config:      ~/.config/vpn-jumphost/config.toml"
+echo "  Log:         /tmp/vpn-jumphost.log"
+echo ""
+echo "  1. Edit your config file:"
+echo "       \$EDITOR ~/.config/vpn-jumphost/config.toml"
+echo ""
+echo "  2. The launchd agent is loaded and will start at login."
+echo "     Manage it with:"
+echo "       launchctl kickstart -k gui/${REAL_UID}/${LABEL}"
+echo "       launchctl kill SIGTERM gui/${REAL_UID}/${LABEL}"
+echo ""
+echo "  3. macOS Notifications:"
+echo "       System Settings → Notifications → Jumphost"
+echo "       Set alert style to Banners or Alerts."
+echo "       Test with:  jumphost test-notification"
+echo ""
+echo "  4. View logs:"
+echo "       tail -f /tmp/vpn-jumphost.log"
+echo "══════════════════════════════════════════════════════════════"
+echo ""
+
+exit 0

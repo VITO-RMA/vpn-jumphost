@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent for vpn-jumphost.
+
+  The installer places this plist in ~/Library/LaunchAgents/ and loads it
+  via `launchctl bootstrap`.  It is the macOS equivalent of the systemd
+  user unit shipped for Linux.
+
+  The binary is installed to /usr/local/bin/jumphost and a minimal .app
+  bundle (for Notification Center registration) lives at
+  /Applications/Jumphost.app.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>sas.vpn-jumphost</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/jumphost</string>
+    <string>run</string>
+    <string>--serve-pac</string>
+  </array>
+
+  <!-- Start automatically at login. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart on crash, but not if the user explicitly unloads. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- Wait 5 s before restarting after a crash. -->
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/vpn-jumphost.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/vpn-jumphost.log</string>
+
+  <!-- Inherit the user's PATH so openconnect / ocproxy / chromium are found. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>

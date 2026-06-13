@@ -79,6 +79,34 @@ systemctl --user enable --now vpn-jumphost.service
 journalctl --user -u vpn-jumphost.service -f
 ```
 
+## macOS installer package
+
+The [`contrib/macos/`](contrib/macos/) directory contains a macOS `.pkg` installer that:
+
+- Installs the `jumphost` binary to `/usr/local/bin/jumphost`
+- Installs a minimal `Jumphost.app` bundle in `/Applications/` so macOS Notification Center delivers MFA notifications under the "Jumphost" name (rather than being silently dropped)
+- Installs a launchd user agent (`sas.vpn-jumphost`) that auto-starts the supervisor at login
+- Copies the example config to `~/.config/vpn-jumphost/config.toml` on first install
+
+```bash
+cd contrib/macos
+just build-package                      # build binary + assemble .pkg
+just install                            # install (requires sudo)
+jumphost test-notification              # verify notifications work
+```
+
+After installing, go to **System Settings → Notifications → Jumphost** and set the alert style to **Banners** or **Alerts**.
+
+Manage the launchd agent:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/sas.vpn-jumphost   # restart
+launchctl kill SIGTERM gui/$(id -u)/sas.vpn-jumphost   # stop
+tail -f /tmp/vpn-jumphost.log                          # logs
+```
+
+Uninstall with `cd contrib/macos && just uninstall`.
+
 ## Using the Nix flake
 
 The project includes a `flake.nix` that builds the `jumphost` binary as a standalone Nix package with all runtime dependencies (`openconnect`, `ocproxy`, and `chromium` on Linux) wrapped on `PATH`. This is the recommended way to integrate the jumphost into a NixOS or home-manager configuration.
