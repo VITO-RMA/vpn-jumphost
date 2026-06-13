@@ -35,7 +35,9 @@ When the bootstrap has run, you can use `just start` to start everything in the 
 To run in the background use `just start-detached` — the daemon logs to `~/.local/state/vpn-jumphost/jumphost.log`. To stop the daemon, use `just stop` (sends SIGTERM to the PID in `~/.local/state/vpn-jumphost/jumphost.pid`).
 
 ## Automatic credentials
-Credentials can be configured via a TOML config file at `~/.config/vpn-jumphost/config.toml` or via environment variables (`VPN_USERNAME` / `VPN_PASSWORD`). All other settings are configured via the config file or CLI flags.
+Credentials can be configured via environment variables (`VPN_USERNAME` / `VPN_PASSWORD`), the OS keyring (macOS Keychain / Linux Secret Service), or a TOML config file at `~/.config/vpn-jumphost/config.toml`. All other settings are configured via the config file or CLI flags.
+
+To store credentials in the OS keyring, run `jumphost authenticate` — it prompts for your username and password and saves them in the platform's native credential store. Use `jumphost authenticate --delete` to remove them.
 
 Create a `.env` file in the project root (already in `.gitignore`):
 
@@ -45,7 +47,7 @@ VPN_USERNAME=your.email@example.com
 VPN_PASSWORD=your_password
 ```
 
-Environment variables take precedence over the config file `[credentials]` table. The browser automation fills in the email/password automatically; you only need to confirm the MFA prompt.
+Environment variables take precedence over the OS keyring, which takes precedence over the config file `[credentials]` table. The browser automation fills in the email/password automatically; you only need to confirm the MFA prompt.
 
 ## Other recipes
 
@@ -213,7 +215,23 @@ username_file = "/var/run/secrets/vpn_user"
 password_file = "/var/run/secrets/vpn_pass"
 ```
 
-**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > config file `username` / `password` > config file `username_file` / `password_file`.
+**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > OS keyring > config file `username` / `password` > config file `username_file` / `password_file`.
+
+### OS keyring
+
+Credentials can be stored securely in the OS keyring (macOS Keychain / Linux Secret Service) using the `authenticate` subcommand:
+
+```bash
+jumphost authenticate
+```
+
+This prompts for your VPN username and password and stores them in the platform's native credential store. To remove stored credentials:
+
+```bash
+jumphost authenticate --delete
+```
+
+Keyring credentials sit between environment variables and the config file in the precedence chain. This is the recommended approach for single-user workstations — credentials are encrypted at rest by the OS and do not need to be written to plain-text files.
 
 ### Persistent browser session reuse
 

@@ -183,7 +183,8 @@ pub struct VpnCredentials {
 /// Resolve VPN credentials with the following precedence:
 ///
 /// 1. Environment variable (`VPN_USERNAME` / `VPN_PASSWORD`) — highest priority.
-/// 2. Config file `[credentials]` table.
+/// 2. OS keyring (macOS Keychain / Linux Secret Service).
+/// 3. Config file `[credentials]` table.
 ///
 /// Returns `Some(VpnCredentials)` only when **both** username and password
 /// resolve to a non-empty value. Returns `None` otherwise.
@@ -210,7 +211,7 @@ pub fn vpn_credentials() -> Option<VpnCredentials> {
 
 /// Resolve a single secret value.
 ///
-/// Precedence: env var > config file value > config file *_file path.
+/// Precedence: env var > OS keyring > config file value > config file *_file path.
 fn resolve_secret<F>(env_key: &str, cfg_accessor: F) -> Option<String>
 where
     F: FnOnce(&config_file::FileConfig) -> Option<(&Option<String>, &Option<PathBuf>)>,
@@ -222,7 +223,21 @@ where
         }
     }
 
-    // 2. Try the config file.
+    // 2. Try the OS keyring.
+    //    We check the keyring per-field so that mixed sources work
+    //    (e.g. username from keyring, password from env).
+    let keyring_val = match env_key {
+        "VPN_USERNAME" => crate::credential_store::get_credentials().map(|(u, _)| u),
+        "VPN_PASSWORD" => crate::credential_store::get_credentials().map(|(_, p)| p),
+        _ => None,
+    };
+    if let Some(val) = keyring_val {
+        if !val.is_empty() {
+            return Some(val);
+        }
+    }
+
+    // 3. Try the config file.
     let cfg = config_file::get();
     if let Some((direct_val, file_path)) = cfg_accessor(cfg) {
         // 2a. Direct value in config.

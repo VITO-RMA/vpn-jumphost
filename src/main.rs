@@ -7,6 +7,7 @@ mod config;
 mod config_file;
 mod cookie;
 mod jumphost;
+mod credential_store;
 mod logging;
 mod pac;
 mod routing;
@@ -73,6 +74,9 @@ enum Command {
     /// this as a separate systemd user unit if you want the URL to
     /// survive jumphost restarts.
     ServePac(ServePacArgs),
+    /// Store VPN credentials (username + password) in the OS keyring
+    /// (macOS Keychain / Linux Secret Service). Prompts interactively.
+    Authenticate(AuthenticateArgs),
     /// Send a test desktop notification to verify that the notification
     /// system is working (macOS Notification Center / Linux D-Bus).
     TestNotification,
@@ -145,6 +149,14 @@ struct ServePacArgs {
 }
 
 #[derive(Args, Debug, Clone)]
+struct AuthenticateArgs {
+    /// Delete stored credentials from the OS keyring instead of
+    /// prompting for new ones.
+    #[arg(long)]
+    delete: bool,
+}
+
+#[derive(Args, Debug, Clone)]
 struct GenerateArgs {
     /// Output path. When omitted, the PAC is written to stdout.
     #[arg(value_name = "PATH")]
@@ -195,6 +207,7 @@ fn main() -> ExitCode {
             Command::ValidateCookie(args) => cmd_validate(args).await,
             Command::GeneratePac(args) => cmd_generate(args).await,
             Command::ServePac(args) => cmd_serve_pac(args).await,
+            Command::Authenticate(args) => cmd_authenticate(args).await,
             Command::TestNotification => cmd_test_notification().await,
         }
     });
@@ -372,6 +385,58 @@ async fn cmd_test_notification() -> ExitCode {
 }
 
 // ── Signal handling ──────────────────────────────────────────────────────
+
+async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
+    if args.delete {
+        match credential_store::delete_credentials() {
+            Ok(()) => {
+                eprintln!("credentials deleted from OS keyring");
+                return ExitCode::SUCCESS;
+            }
+            Err(e) => {
+                error!(error = %e, "failed to delete credentials");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    // Prompt for username.
+    eprint!("VPN username: ");
+    let mut username = String::new();
+    if let Err(e) = std::io::stdin().read_line(&mut username) {
+        error!(error = %e, "failed to read username");
+        return ExitCode::FAILURE;
+    }
+    let username = username.trim().to_string();
+    if username.is_empty() {
+        error!("username must not be empty");
+        return ExitCode::FAILURE;
+    }
+
+    // Prompt for password (hidden input).
+    let password = match rpassword::prompt_password("VPN password: ") {
+        Ok(p) => p,
+        Err(e) => {
+            error!(error = %e, "failed to read password");
+            return ExitCode::FAILURE;
+        }
+    };
+    if password.is_empty() {
+        error!("password must not be empty");
+        return ExitCode::FAILURE;
+    }
+
+    match credential_store::store_credentials(&username, &password) {
+        Ok(()) => {
+            eprintln!("credentials stored in OS keyring");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            error!(error = %e, "failed to store credentials");
+            ExitCode::FAILURE
+        }
+    }
+}
 
 fn install_signal_handlers(stop: CancellationToken) {
     // SIGTERM / SIGINT / SIGHUP — all trigger a clean shutdown.

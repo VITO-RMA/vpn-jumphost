@@ -243,7 +243,34 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just current-version` | Prints the latest semver release tag from git |
 | `just release major\|minor\|patch` | Validates level / main / clean state, computes the next semver tag, then tags and pushes `main` + tag |
 
-### 8. SSH Proxy Configuration
+### 8. Keyring Credential Storage (`jumphost authenticate`)
+
+**What it does:** Stores VPN credentials (username and password) in the OS keyring so they can be used for automated cookie refresh without environment variables or plaintext config files.
+
+**How it works:**
+- Implemented using the [`keyring-core`](https://crates.io/crates/keyring-core) crate (v1) with platform-specific store backends:
+  - **macOS:** `apple-native-keyring-store` — stores credentials in macOS Keychain.
+  - **Linux:** `dbus-secret-service-keyring-store` — stores credentials via the Secret Service API (GNOME Keyring / KWallet).
+- `jumphost authenticate` prompts interactively for username and password, then writes them to the keyring.
+- `jumphost authenticate --delete` removes any previously stored credentials from the keyring.
+- The keyring is checked as a credential source between env vars and the config file:
+  1. `VPN_USERNAME` / `VPN_PASSWORD` env vars (highest priority)
+  2. OS keyring (macOS Keychain / Linux Secret Service)
+  3. Config file `[credentials]` table (value or `*_file` path)
+
+**CLI flags:**
+- `--delete` — remove stored credentials from the keyring instead of prompting for new ones.
+
+**Standalone usage:**
+```bash
+# Store credentials
+jumphost authenticate
+
+# Remove stored credentials
+jumphost authenticate --delete
+```
+
+### 9. SSH Proxy Configuration
 
 **What it does:** Provides an OpenSSH client config file for routing SSH connections through the jumphost's SOCKS5 proxy.
 
@@ -305,7 +332,7 @@ The supervisor (`src/jumphost.rs` for `run`, `src/cookie.rs` for the primitives)
 Before starting openconnect, the supervisor validates the cookie and auto-refreshes it if needed:
 
 1. **Validate** — `src/cookie.rs` probes the VPN endpoint (`$VPN_URL/vdesk/vpn/index.php3?outform=xml` with the `MRHSession` cookie) using `reqwest` configured with `rustls` and `redirect::Policy::none()`. **HTTP redirects are deliberately not followed** — a 3xx response (the F5 gateway redirecting to the SSO login page) means the cookie is expired or invalid. A 404 also indicates an expired/invalid cookie. Network errors (DNS failure, timeout, etc.) are **not** treated as an invalid cookie — the supervisor proceeds with the existing cookie so transient connectivity blips don't force a re-login. The same logic is exposed via `jumphost validate-cookie` (exit codes: 0 valid, 1 invalid, 2 network error).
-2. **Refresh** — if the cookie file is missing, empty, or the validation returned 404/3xx, the supervisor automatically runs the same code path as `jumphost fetch-cookie` to open Chromium for SSO login and capture a fresh cookie, writing it back to the configured cookie file atomically. If `VPN_USERNAME` or `VPN_PASSWORD` are set (via env var or config file), they are forwarded to the cookie-fetch code to pre-fill the login form.
+2. **Refresh** — if the cookie file is missing, empty, or the validation returned 404/3xx, the supervisor automatically runs the same code path as `jumphost fetch-cookie` to open Chromium for SSO login and capture a fresh cookie, writing it back to the configured cookie file atomically. If `VPN_USERNAME` or `VPN_PASSWORD` are set (via env var, OS keyring, or config file), they are forwarded to the cookie-fetch code to pre-fill the login form.
 3. **Error** — if auto-refresh fails (Chromium not on `PATH`, user cancels the browser, timeout, etc.), the supervisor logs an actionable error and exits non-zero.
 
 There is no `VPN_COOKIE` env-var fallback and no interactive stdin fallback (process-compose has no useful TTY).
@@ -419,8 +446,8 @@ password_file = "/run/secrets/vpn_pass"
 | `pac_generate.proxy_chain` | string | Full proxy chain string in PAC |
 | `domains.proxy` | array of strings | Domains routed through VPN (no compiled-in default; must be configured) |
 | `domains.direct` | array of strings | Domains always reached directly (no compiled-in default) |
-| `credentials.username` | string | VPN username (also settable via `VPN_USERNAME` env var) |
-| `credentials.password` | string | VPN password (also settable via `VPN_PASSWORD` env var) |
+| `credentials.username` | string | VPN username (also settable via `VPN_USERNAME` env var or OS keyring) |
+| `credentials.password` | string | VPN password (also settable via `VPN_PASSWORD` env var or OS keyring) |
 | `credentials.username_file` | path | Path to file containing username |
 | `credentials.password_file` | path | Path to file containing password |
 
@@ -435,13 +462,15 @@ Most configuration is done via the config file or CLI flags. Only two environmen
 | `VPN_USERNAME` | VPN username for automated browser login. Also settable via `[credentials] username` in the config file. |
 | `VPN_PASSWORD` | VPN password for automated browser login. Also settable via `[credentials] password` in the config file. |
 
-**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars take precedence over the config file `[credentials]` table.
+**Precedence:** `VPN_USERNAME` / `VPN_PASSWORD` env vars > OS keyring (`jumphost authenticate`) > config file `[credentials]` table.
 
 Standard system variables (`XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `RUST_LOG`, `NO_COLOR`, `FORCE_COLOR`, `PATH`) are honored as usual but are not application-specific configuration.
 
 CLI overview: `-c/--config FILE`, `--serve-pac`, `--check-interval SECONDS`, `--cookie-file PATH`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). The `run`-specific flags are accepted both at the top level (`jumphost --no-headless --serve-pac`) and on the `run` subcommand. The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
 
 `fetch-cookie` CLI: `-o/--output FILE`, `--profile-dir DIR`, `--chromium PATH`, `--max-wait SECONDS`, `--headless`.
+
+`authenticate` CLI: `--delete` (remove stored credentials instead of prompting).
 
 ### Config Files
 

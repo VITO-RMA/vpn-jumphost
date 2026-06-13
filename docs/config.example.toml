@@ -87,8 +87,8 @@ direct = ["byod.vito.be"]
 #
 # When both username and password resolve to non-empty values, the
 # browser-based cookie fetch can pre-fill the SSO form automatically.
-# Precedence per field: VPN_USERNAME/VPN_PASSWORD env var > config value >
-# config *_file path.
+# Precedence per field: VPN_USERNAME/VPN_PASSWORD env var > OS keyring
+# (`jumphost authenticate`) > config value > config *_file path.
 
 [credentials]
 # username = "user@vito.be"
