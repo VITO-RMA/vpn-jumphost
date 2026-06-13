@@ -8,7 +8,7 @@ This document describes how the VPN jumphost fits together: the **F5 BIG-IP APM*
 | --- | --- |
 | **VPN portal** | The F5 BIG-IP APM web portal (configured via `vpn_url`). You sign in in a browser and obtain a **session cookie** used to authenticate the VPN client. |
 | **F5** | The VPN front end is exposed as an **F5 BIG-IP APM**–style portal. OpenConnect speaks the **`f5`** protocol to that endpoint (not a generic SSL VPN profile). |
-| **`jumphost` binary** | Single Rust binary built from the repo root (`target/release/jumphost`). One process owns everything: cookie management, openconnect supervision, the routing proxy, and the PAC HTTP server. Subcommands: `run` (default), `fetch-cookie`, `validate-cookie`, `generate-pac`, `serve-pac`. |
+| **`jumphost` binary** | Single Rust binary built from the repo root (`target/release/jumphost`). One process owns everything: cookie management, openconnect supervision, the routing proxy, and the PAC HTTP server. Subcommands: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`. |
 | **`src/vpn.rs`** | Spawns and supervises `openconnect` via `tokio::process::Command`, with `--script-tun --script "ocproxy …"`. openconnect does **not** open `/dev/net/tun`; it spawns ocproxy as its tunnel peer and exchanges raw IP packets over a socketpair. |
 | **ocproxy** | A userspace TCP/IP stack (lwIP) launched by openconnect. Terminates the VPN's IP packets in user space and serves SOCKS5 on `127.0.0.1:1080`. The routing proxy on port 1081 sits in front. |
 | **`src/config.rs`** | Shared configuration: constants, config-file lookups, and TOML config file integration (`src/config_file.rs`). **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy. All settings can be overridden via a TOML config file (`-c / --config FILE`, or `$XDG_CONFIG_HOME/vpn-jumphost/config.toml` by default; see [spec.md § Config File](../spec.md#config-file)). Precedence: CLI > config file > compiled-in default. |
@@ -44,12 +44,7 @@ flowchart LR
     OC --> OCP
   end
 
-  subgraph Helper["Independent helpers"]
-    PSRV["pac-server.service\n(jumphost serve-pac, optional)"]
-  end
-
   PAC <--> PS
-  PAC <-.optional.-> PSRV
   LP <--> RP
   RP <-->|VPN-domain| OCP
   RP -->|direct| Internet
@@ -64,8 +59,6 @@ flowchart LR
 ```
 
 The VPN tunnel is terminated inside `ocproxy`'s userspace TCP/IP stack — there is no kernel route into the VPN network at all. The routing proxy on `127.0.0.1:1081` is the universal client target: per-domain it either forwards to ocproxy on `127.0.0.1:1080` (VPN-routed) or connects directly. Applications point at `socks5h://127.0.0.1:1081`; everything else on the host is unaffected.
-
-A standalone PAC server systemd unit (using `jumphost serve-pac`) is available for environments where you want the PAC file served independently of the VPN supervisor — useful when the PAC URL must be reachable before the supervisor is started.
 
 ## BYOD, F5 cookie, and OpenConnect
 

@@ -35,13 +35,7 @@ struct Cli {
     config: Option<PathBuf>,
 
     #[command(subcommand)]
-    command: Option<Command>,
-
-    // ── `run` arguments at the top level for backwards-compatible UX ──
-    // (`jumphost --serve-pac …` works just like the old
-    // `python3 scripts/jumphost.py --serve-pac`.)
-    #[command(flatten)]
-    run_args: RunArgs,
+    command: Command,
 }
 
 #[derive(Subcommand, Debug)]
@@ -58,11 +52,6 @@ enum Command {
     ValidateCookie(ValidateArgs),
     /// Print the generated PAC file to stdout (or to a file).
     GeneratePac(GenerateArgs),
-    /// Run only the loopback PAC HTTP server (no VPN, no routing proxy).
-    /// Useful for serving the PAC URL even when the VPN is down — set
-    /// this as a separate systemd user unit if you want the URL to
-    /// survive jumphost restarts.
-    ServePac(ServePacArgs),
     /// Store VPN credentials (username + password) in the OS keyring
     /// (macOS Keychain / Linux Secret Service). Prompts interactively.
     Authenticate(AuthenticateArgs),
@@ -81,13 +70,14 @@ struct RunArgs {
     #[arg(long, value_name = "SECONDS")]
     check_interval: Option<f64>,
 
-    /// Path to the F5 MRHSession cookie file.
+    /// Path to the MRHSession cookie file.
     #[arg(long, value_name = "PATH")]
     cookie_file: Option<PathBuf>,
 
     /// Disable headless cookie refresh. By default the supervisor uses
-    /// headless mode when credentials are configured. This flag forces
-    /// it to always open a visible browser window instead.
+    /// headless mode when credentials are configured and shows an MFA
+    /// desktop notification. This flag forces it to always open a visible
+    /// browser window instead.
     #[arg(long)]
     no_headless: bool,
 }
@@ -124,17 +114,6 @@ struct ValidateArgs {
     /// Path to the cookie file. Defaults to the same path used by `run`.
     #[arg(value_name = "PATH")]
     cookie_file: Option<PathBuf>,
-}
-
-#[derive(Args, Debug, Clone)]
-struct ServePacArgs {
-    /// Bind address.
-    #[arg(long, default_value = "127.0.0.1")]
-    bind: String,
-
-    /// Listen port.
-    #[arg(long, default_value_t = 8091)]
-    port: u16,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -190,12 +169,11 @@ fn main() -> ExitCode {
     };
 
     let code = rt.block_on(async move {
-        match cli.command.unwrap_or(Command::Run(cli.run_args)) {
+        match cli.command {
             Command::Run(args) => cmd_run(args).await,
             Command::FetchCookie(args) => cmd_fetch(args).await,
             Command::ValidateCookie(args) => cmd_validate(args).await,
             Command::GeneratePac(args) => cmd_generate(args).await,
-            Command::ServePac(args) => cmd_serve_pac(args).await,
             Command::Authenticate(args) => cmd_authenticate(args).await,
             Command::TestNotification => cmd_test_notification().await,
         }
@@ -327,19 +305,6 @@ async fn cmd_generate(args: GenerateArgs) -> ExitCode {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
-        }
-    }
-}
-
-async fn cmd_serve_pac(args: ServePacArgs) -> ExitCode {
-    let stop = CancellationToken::new();
-    install_signal_handlers(stop.clone());
-    info!(bind = %args.bind, port = args.port, "starting PAC-only HTTP server");
-    match pac::serve(&args.bind, args.port, stop).await {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            error!(error = %e, "PAC server exited with error");
-            ExitCode::FAILURE
         }
     }
 }
