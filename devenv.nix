@@ -28,6 +28,7 @@
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
       pkgs.chromium
+      pkgs.dbus
       pkgs.mold
     ]
     ++ lib.optionals pkgs.stdenv.isDarwin [ pkgs.lld ];
