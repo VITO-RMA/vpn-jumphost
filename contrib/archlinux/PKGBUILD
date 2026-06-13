@@ -6,8 +6,8 @@ pkgdesc='VPN jumphost: OpenConnect+ocproxy supervisor with routing SOCKS5 proxy,
 arch=('x86_64' 'aarch64')
 url='https://github.com/VITO-RMA/vpn-jumphost'
 license=('MIT')
-depends=('openconnect' 'ocproxy' 'chromium')
-makedepends=('cargo')
+depends=('dbus' 'openconnect' 'ocproxy' 'chromium')
+makedepends=('cargo' 'dbus')
 install=vpn-jumphost.install
 backup=()
 # Disable makepkg's C/C++ LTO: Rust crates with bundled native code (e.g. ring/aws-lc-sys)
