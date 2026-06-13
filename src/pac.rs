@@ -54,7 +54,7 @@ fn build_direct_rules(domains: &[&str]) -> String {
     let mut blocks = Vec::with_capacity(domains.len());
     for d in domains {
         blocks.push(format!(
-            "  if ({cond}) {{\n    return \"DIRECT\";\n  }}\n  if (url.indexOf(\"{d}\") !== -1) {{\n    return \"DIRECT\";\n  }}",
+            "  if ({cond}) {{\n    return \"DIRECT\";\n  }}",
             cond = domain_condition(d),
         ));
     }
@@ -196,5 +196,17 @@ mod tests {
         for d in config::proxy_domains() {
             assert!(pac.contains(d.as_str()), "PAC should reference {d}");
         }
+    }
+
+    #[test]
+    fn pac_direct_domains_no_url_indexof() {
+        let pac = generate();
+        // Direct-domain rules must use host-based checks only; a url.indexOf
+        // check is redundant and can produce false positives when the direct
+        // domain appears in the path or query of a proxied URL.
+        assert!(
+            !pac.contains("url.indexOf"),
+            "PAC should not contain url.indexOf checks"
+        );
     }
 }

@@ -83,7 +83,7 @@ struct AuthenticateArgs {
 
 #[derive(Args, Debug, Clone)]
 struct GenerateCompletionsArgs {
-    /// Shell to generate completions for (bash, zsh, fish, powershell, elvish).
+    /// Shell to generate completions for
     shell: Shell,
 }
 
