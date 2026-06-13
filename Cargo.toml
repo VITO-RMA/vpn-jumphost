@@ -25,23 +25,44 @@ reqwest = "0.13"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
-tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = [
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
 tokio-util = "0.7"
 toml = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["ansi", "chrono", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = [
+    "ansi",
+    "chrono",
+    "env-filter",
+] }
 
-# Linux-only: D-Bus desktop notifications + logind PrepareForSleep.
-[target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = "4"
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 # macOS-only: Cocoa bindings for NSWorkspaceDidWakeNotification.
 [target.'cfg(target_os = "macos")'.dependencies]
-block2 = "0.5"
-objc2 = "0.5"
-objc2-app-kit = { version = "0.2", features = ["NSResponder", "NSWorkspace"] }
-objc2-foundation = { version = "0.2", features = ["NSDate", "NSNotification", "NSObjCRuntime", "NSObject", "NSOperation", "NSRunLoop", "NSString", "NSThread", "block2"] }
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSResponder", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", features = [
+    "NSDate",
+    "NSNotification",
+    "NSObjCRuntime",
+    "NSObject",
+    "NSOperation",
+    "NSRunLoop",
+    "NSString",
+    "NSThread",
+    "block2",
+] }
 
 [profile.release]
 strip = true

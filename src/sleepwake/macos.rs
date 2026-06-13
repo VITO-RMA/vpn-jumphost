@@ -13,8 +13,10 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 use std::time::Duration;
 
-use objc2::rc::{autoreleasepool, Retained};
+use objc2::rc::{Retained, autoreleasepool};
+use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::NSWorkspace;
+use objc2_foundation::NSObjectProtocol;
 use objc2_foundation::{
     NSDate, NSDefaultRunLoopMode, NSNotification, NSOperationQueue, NSRunLoop, NSString,
 };
@@ -54,32 +56,34 @@ fn run(on_resume: Arc<Notify>, shutdown: CancellationToken) {
             resume_for_block.notify_one();
         });
 
-        let workspace = unsafe { NSWorkspace::sharedWorkspace() };
-        let nc = unsafe { workspace.notificationCenter() };
+        let workspace = NSWorkspace::sharedWorkspace();
+        let nc = workspace.notificationCenter();
         let name = NSString::from_str("NSWorkspaceDidWakeNotification");
         let queue: Option<&NSOperationQueue> = None;
 
         // `addObserverForName:object:queue:usingBlock:` returns an opaque
         // token we must retain so the observer stays registered.
-        let observer: Retained<objc2_foundation::NSObject> = unsafe {
+        let observer: Retained<ProtocolObject<dyn NSObjectProtocol>> = unsafe {
             nc.addObserverForName_object_queue_usingBlock(Some(&name), None, queue, &block)
         };
 
         // Run the runloop in 500 ms slices so we can check shutdown.
-        let run_loop = unsafe { NSRunLoop::currentRunLoop() };
+        let run_loop = NSRunLoop::currentRunLoop();
         let mode = unsafe { NSDefaultRunLoopMode };
         while !shutdown.is_cancelled() {
-            let until = unsafe { NSDate::dateWithTimeIntervalSinceNow(0.5) };
-            unsafe {
-                run_loop.runMode_beforeDate(mode, &until);
-            }
+            let until = NSDate::dateWithTimeIntervalSinceNow(0.5);
+            run_loop.runMode_beforeDate(mode, &until);
         }
 
         // Best-effort cleanup before leaving the autorelease pool.
+        // ProtocolObject and AnyObject are both #[repr(C)] wrappers around
+        // objc_object, so the pointer cast is sound.
+        let observer_any: &AnyObject = unsafe {
+            &*(&*observer as *const ProtocolObject<dyn NSObjectProtocol> as *const AnyObject)
+        };
         unsafe {
-            nc.removeObserver(&observer);
+            nc.removeObserver(observer_any);
         }
-        let _ = observer; // silence unused warning
         let _ = Duration::ZERO; // silence unused-import warning when feature flags shift
     });
 }
