@@ -10,20 +10,12 @@
 //!   `routing_proxy.port` in the config file are picked up without
 //!   restarting the supervisor.
 
-use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
-use bytes::Bytes;
-use http_body_util::Full;
-use hyper::body::Incoming;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 use crate::config;
 
@@ -95,39 +87,20 @@ pub fn generate() -> String {
 
 // ── HTTP server ────────────────────────────────────────────────────────
 
-async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
-    if req.method() != Method::GET && req.method() != Method::HEAD {
-        let resp = Response::builder()
-            .status(StatusCode::METHOD_NOT_ALLOWED)
-            .header("Allow", "GET, HEAD")
-            .body(Full::new(Bytes::from_static(b"Method Not Allowed\n")))
-            .expect("static response");
-        return Ok(resp);
-    }
-
+/// Handler for GET (and HEAD — axum strips the body automatically for HEAD).
+/// Returns 405 automatically for any other method.
+async fn pac_handler() -> impl IntoResponse {
     let body = generate();
-    let bytes = Bytes::from(body);
-    let len = bytes.len();
-
-    let mut builder = Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", PAC_CONTENT_TYPE)
-        .header("Content-Length", len)
-        .header("Cache-Control", "no-store");
-
-    // Browsers identify PAC files via the response Content-Type; the path
-    // doesn't matter, so any request returns the same body. Use HEAD to
-    // strip the body but keep the headers.
-    let resp = if req.method() == Method::HEAD {
-        builder
-            .body(Full::new(Bytes::new()))
-            .expect("static response")
-    } else {
-        // For convenience, hint the filename when fetched directly.
-        builder = builder.header("Content-Disposition", "inline; filename=\"proxy.pac\"");
-        builder.body(Full::new(bytes)).expect("static response")
-    };
-    Ok(resp)
+    (
+        StatusCode::OK,
+        [
+            ("Content-Type", PAC_CONTENT_TYPE),
+            ("Cache-Control", "no-store"),
+            // Hint the filename when the PAC URL is opened directly in a browser.
+            ("Content-Disposition", "inline; filename=\"proxy.pac\""),
+        ],
+        body,
+    )
 }
 
 /// Run the PAC HTTP server until `shutdown` is cancelled.
@@ -138,44 +111,14 @@ pub async fn serve(bind: &str, port: u16, shutdown: CancellationToken) -> anyhow
     let listener = TcpListener::bind(addr).await?;
     info!(bind = %addr, "PAC HTTP server listening");
 
-    let shutdown = Arc::new(shutdown);
+    let app = Router::new().fallback(get(pac_handler));
 
-    loop {
-        tokio::select! {
-            biased;
-            _ = shutdown.cancelled() => {
-                info!("PAC server: shutdown requested");
-                break;
-            }
-            result = listener.accept() => {
-                match result {
-                    Ok((stream, peer)) => {
-                        debug!(peer = %peer, "PAC server: accepted");
-                        let io = TokioIo::new(stream);
-                        let shutdown = Arc::clone(&shutdown);
-                        tokio::spawn(async move {
-                            let conn = http1::Builder::new().serve_connection(io, service_fn(handle));
-                            tokio::pin!(conn);
-                            tokio::select! {
-                                res = &mut conn => {
-                                    if let Err(e) = res {
-                                        debug!(peer = %peer, error = %e, "PAC server: connection error");
-                                    }
-                                }
-                                _ = shutdown.cancelled() => {
-                                    conn.as_mut().graceful_shutdown();
-                                    let _ = (&mut conn).await;
-                                }
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "PAC server: failed to accept connection");
-                    }
-                }
-            }
-        }
-    }
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown.cancelled().await;
+            info!("PAC server: shutdown requested");
+        })
+        .await?;
 
     Ok(())
 }
