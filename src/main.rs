@@ -109,7 +109,8 @@ struct GeneratePacArgs {
     output: Option<PathBuf>,
 }
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     // Load .env before CLI parsing so that env-backed clap defaults and
     // config::vpn_credentials() see the values regardless of whether the
     // binary is invoked via `just` (which has its own dotenv-load) or
@@ -135,29 +136,14 @@ fn main() -> ExitCode {
         }
     }
 
-    let rt = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("jumphost: could not start tokio runtime: {e}");
-            return ExitCode::from(2);
-        }
-    };
-
-    let code = rt.block_on(async move {
-        match cli.command {
-            Command::Run(args) => cmd_run(args).await,
-            Command::FetchCookie(args) => cmd_fetch(args).await,
-            Command::ValidateCookie(args) => cmd_validate(args).await,
-            Command::GeneratePac(args) => cmd_generate(args).await,
-            Command::Authenticate(args) => cmd_authenticate(args).await,
-            Command::TestNotification => cmd_test_notification().await,
-        }
-    });
-
-    code
+    match cli.command {
+        Command::Run(args) => cmd_run(args).await,
+        Command::FetchCookie(args) => cmd_fetch(args).await,
+        Command::ValidateCookie(args) => cmd_validate(args).await,
+        Command::GeneratePac(args) => cmd_generate(args).await,
+        Command::Authenticate(args) => cmd_authenticate(args).await,
+        Command::TestNotification => cmd_test_notification().await,
+    }
 }
 
 // ── Subcommands ───────────────────────────────────────────────────────────
