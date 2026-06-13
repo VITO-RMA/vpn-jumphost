@@ -70,11 +70,7 @@ pub async fn validate_file(cookie_file: &Path) -> CookieStatus {
 /// not valid.
 pub async fn validate_cookie(cookie: &str) -> CookieStatus {
     let vpn_url = config::cfg_string("VPN_URL", config::DEFAULT_VPN_URL);
-    let probe_url = format!(
-        "{}{}",
-        vpn_url.trim_end_matches('/'),
-        config::COOKIE_PROBE_PATH
-    );
+    let probe_url = format!("{}{}", vpn_url.trim_end_matches('/'), config::COOKIE_PROBE_PATH);
 
     let client = match reqwest::Client::builder()
         .redirect(RedirectPolicy::none())
@@ -117,8 +113,7 @@ pub async fn validate_cookie(cookie: &str) -> CookieStatus {
 
 /// Write `value` to `path` with mode 600 (creates parent dirs).
 pub fn write_cookie_file(path: &Path, value: &str) -> Result<()> {
-    config::ensure_parent_dir(path)
-        .with_context(|| format!("creating parent dir for {}", path.display()))?;
+    config::ensure_parent_dir(path).with_context(|| format!("creating parent dir for {}", path.display()))?;
     fs::write(path, value).with_context(|| format!("writing {}", path.display()))?;
     // chmod 600 (best effort on Unix).
     let mut perms = fs::metadata(path)?.permissions();
@@ -201,9 +196,7 @@ pub async fn fetch(options: FetchOptions) -> Result<String> {
                 match launch_and_fetch(&vpn_url, &options, false).await? {
                     FetchOutcome::Cookie(c) => c,
                     FetchOutcome::InteractionRequired => {
-                        return Err(anyhow!(
-                            "interactive MFA required but headed browser also failed"
-                        ));
+                        return Err(anyhow!("interactive MFA required but headed browser also failed"));
                     }
                 }
             }
@@ -226,40 +219,30 @@ pub async fn fetch(options: FetchOptions) -> Result<String> {
 
 /// Launch Chromium (headed or headless), run the SSO flow, and return
 /// either a captured cookie or an [`FetchOutcome::MfaRequired`] signal.
-async fn launch_and_fetch(
-    vpn_url: &str,
-    options: &FetchOptions,
-    headless: bool,
-) -> Result<FetchOutcome> {
+async fn launch_and_fetch(vpn_url: &str, options: &FetchOptions, headless: bool) -> Result<FetchOutcome> {
     let mut builder = BrowserConfig::builder().window_size(1280, 900);
 
     if !headless {
         builder = builder.with_head();
     }
 
-    if let Some(profile) = options.profile_dir.as_ref() {
-        config::ensure_parent_dir(profile)
-            .with_context(|| format!("creating profile dir parent for {}", profile.display()))?;
+    if let Some(profile) = &options.profile_dir {
+        config::ensure_parent_dir(profile).with_context(|| format!("creating profile dir parent for {}", profile.display()))?;
         builder = builder.user_data_dir(profile);
         info!(profile = %profile.display(), headless, "using persistent Chromium profile");
     } else {
         info!(headless, "using ephemeral Chromium profile");
     }
 
-    if let Some(exe) = options.chromium_path.as_ref() {
+    if let Some(exe) = &options.chromium_path {
         if !exe.exists() {
-            return Err(anyhow!(
-                "configured Chromium executable not found: {}",
-                exe.display()
-            ));
+            return Err(anyhow!("configured Chromium executable not found: {}", exe.display()));
         }
         builder = builder.chrome_executable(exe);
         info!(path = %exe.display(), "using configured Chromium executable");
     }
 
-    let config = builder
-        .build()
-        .map_err(|e| anyhow!("could not build Chromium config: {e}"))?;
+    let config = builder.build().map_err(|e| anyhow!("could not build Chromium config: {e}"))?;
 
     let (mut browser, mut handler) = Browser::launch(config)
         .await
@@ -273,14 +256,7 @@ async fn launch_and_fetch(
         }
     });
 
-    let result = fetch_inner(
-        &mut browser,
-        vpn_url,
-        options.max_wait,
-        headless,
-        &options.stop,
-    )
-    .await;
+    let result = fetch_inner(&mut browser, vpn_url, options.max_wait, headless, &options.stop).await;
 
     // Clean up the browser with a timeout so a broken CDP connection or a
     // slow Chromium shutdown cannot hang the process (e.g. after Ctrl-C).
@@ -290,10 +266,7 @@ async fn launch_and_fetch(
         }
         let _ = browser.wait().await;
     };
-    if tokio::time::timeout(Duration::from_secs(5), cleanup)
-        .await
-        .is_err()
-    {
+    if tokio::time::timeout(Duration::from_secs(5), cleanup).await.is_err() {
         warn!("browser cleanup timed out after 5 s; abandoning");
     }
     handler_task.abort();
@@ -388,9 +361,7 @@ async fn fetch_inner(
             }
             if stuck_url_count >= 5 && current_url.contains("/DeviceAuthTls") {
                 warn!(url = %current_url, "stuck on device-auth page; reloading VPN URL to retry");
-                let _ = page
-                    .evaluate(format!("location.href = {:?}", vpn_url))
-                    .await;
+                let _ = page.evaluate(format!("location.href = {:?}", vpn_url)).await;
                 stuck_url_count = 0;
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 continue;
@@ -422,9 +393,9 @@ async fn fetch_inner(
                 MfaPhase::ApprovalPending => {
                     if notified_number.is_none() {
                         // Dump visible text once so we can find the right selector.
-                        let dump = page.evaluate(
-                            "(document.body && document.body.innerText || '').substring(0, 500)"
-                        ).await
+                        let dump = page
+                            .evaluate("(document.body && document.body.innerText || '').substring(0, 500)")
+                            .await
                             .ok()
                             .and_then(|v| v.into_value::<String>().ok())
                             .unwrap_or_default();
@@ -452,11 +423,7 @@ async fn fetch_inner(
         }
 
         if Instant::now() >= deadline {
-            return Err(anyhow!(
-                "did not find a valid {} cookie within {:?}",
-                config::COOKIE_NAME,
-                max_wait
-            ));
+            return Err(anyhow!("did not find a valid {} cookie within {:?}", config::COOKIE_NAME, max_wait));
         }
         tokio::select! {
             _ = stop.cancelled() => {
@@ -649,11 +616,9 @@ impl NotificationGuard {
             // we just drop it.
             #[cfg(target_os = "linux")]
             {
-                let _ = std::thread::Builder::new()
-                    .name("close-mfa-notif".into())
-                    .spawn(move || {
-                        handle.close();
-                    });
+                let _ = std::thread::Builder::new().name("close-mfa-notif".into()).spawn(move || {
+                    handle.close();
+                });
             }
             #[cfg(not(target_os = "linux"))]
             let _ = handle;
@@ -774,9 +739,7 @@ async fn try_mfa_remember_device(page: &chromiumoxide::Page) -> bool {
     })()"#;
     match page.evaluate(script).await {
         Ok(val) => {
-            let result = val
-                .into_value::<String>()
-                .unwrap_or_else(|_| "<parse-error>".into());
+            let result = val.into_value::<String>().unwrap_or_else(|_| "<parse-error>".into());
             if result == "clicked" {
                 info!("MFA: checked \"don't ask again for 14 days\" on approval screen");
             }
@@ -843,9 +806,7 @@ async fn detect_login_page(page: &chromiumoxide::Page) -> String {
         return 'unknown (url=' + url + ')';
     })()"#;
     match page.evaluate(script).await {
-        Ok(val) => val
-            .into_value::<String>()
-            .unwrap_or_else(|_| "<eval-parse-error>".into()),
+        Ok(val) => val.into_value::<String>().unwrap_or_else(|_| "<eval-parse-error>".into()),
         Err(e) => format!("<eval-error: {e}>"),
     }
 }
@@ -879,9 +840,7 @@ async fn try_account_picker(page: &chromiumoxide::Page, username: &str) -> bool 
     );
     match page.evaluate(script).await {
         Ok(val) => {
-            let result = val
-                .into_value::<String>()
-                .unwrap_or_else(|_| "<parse-error>".into());
+            let result = val.into_value::<String>().unwrap_or_else(|_| "<parse-error>".into());
             let clicked = !result.starts_with("none");
             debug!(result, clicked, "try_account_picker");
             clicked
@@ -918,12 +877,7 @@ fn serde_json_encode(s: &str) -> String {
 
 /// Type `value` into the first element matching `selector` if visible.
 /// When `clear_first` is true, the field is emptied before typing.
-async fn type_into(
-    page: &chromiumoxide::Page,
-    selector: &str,
-    value: &str,
-    clear_first: bool,
-) -> Result<()> {
+async fn type_into(page: &chromiumoxide::Page, selector: &str, value: &str, clear_first: bool) -> Result<()> {
     let element = page
         .find_element(selector)
         .await
@@ -932,10 +886,7 @@ async fn type_into(
         let _ = element.click().await;
         // Select-all + delete is the most reliable cross-browser clear.
         let _ = page
-            .evaluate(format!(
-                "document.querySelector({sel:?}).value = ''",
-                sel = selector
-            ))
+            .evaluate(format!("document.querySelector({sel:?}).value = ''", sel = selector))
             .await;
     }
     let _ = element.click().await;
@@ -951,9 +902,6 @@ async fn click_once(page: &chromiumoxide::Page, selector: &str) -> Result<()> {
         .find_element(selector)
         .await
         .map_err(|e| anyhow!("selector {selector} not found: {e}"))?;
-    element
-        .click()
-        .await
-        .map_err(|e| anyhow!("clicking {selector} failed: {e}"))?;
+    element.click().await.map_err(|e| anyhow!("clicking {selector} failed: {e}"))?;
     Ok(())
 }

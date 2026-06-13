@@ -16,8 +16,8 @@
 use std::env;
 use std::io::IsTerminal;
 
-use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::time::ChronoLocal;
 
 /// Initialize the global tracing subscriber. Safe to call exactly once at
 /// process start. Subsequent calls are silently ignored.
@@ -27,8 +27,7 @@ pub fn init(verbose: bool) {
     } else {
         "info,chromiumoxide=error"
     };
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
     let use_color = use_color();
 

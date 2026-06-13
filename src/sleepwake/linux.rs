@@ -11,7 +11,7 @@ use futures_util::StreamExt;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
-use zbus::{message::Type as MessageType, Connection, MatchRule, MessageStream};
+use zbus::{Connection, MatchRule, MessageStream, message::Type as MessageType};
 
 use super::SleepWakeHandle;
 
@@ -28,10 +28,7 @@ pub fn spawn() -> Option<SleepWakeHandle> {
         }
     });
 
-    Some(SleepWakeHandle {
-        on_resume,
-        shutdown,
-    })
+    Some(SleepWakeHandle { on_resume, shutdown })
 }
 
 async fn run(on_resume: Arc<Notify>, shutdown: CancellationToken) -> zbus::Result<()> {

@@ -35,11 +35,7 @@ fn build_condition_block(conditions: &[String]) -> String {
     if conditions.is_empty() {
         return "    false".to_string();
     }
-    conditions
-        .iter()
-        .map(|c| format!("    {c}"))
-        .collect::<Vec<_>>()
-        .join(" ||\n")
+    conditions.iter().map(|c| format!("    {c}")).collect::<Vec<_>>().join(" ||\n")
 }
 
 fn build_direct_rules(domains: &[&str]) -> String {
@@ -147,9 +143,6 @@ mod tests {
         // Direct-domain rules must use host-based checks only; a url.indexOf
         // check is redundant and can produce false positives when the direct
         // domain appears in the path or query of a proxied URL.
-        assert!(
-            !pac.contains("url.indexOf"),
-            "PAC should not contain url.indexOf checks"
-        );
+        assert!(!pac.contains("url.indexOf"), "PAC should not contain url.indexOf checks");
     }
 }

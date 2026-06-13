@@ -90,10 +90,7 @@ impl VpnProcess {
             }
             Ok(Err(e)) => Err(anyhow!("waiting for openconnect failed: {e}")),
             Err(_) => {
-                warn!(
-                    "openconnect did not exit within {:?}; sending SIGKILL",
-                    term_timeout
-                );
+                warn!("openconnect did not exit within {:?}; sending SIGKILL", term_timeout);
                 let _ = self.child.kill().await;
                 let _ = self.child.wait().await;
                 info!("VPN stopped (forced)");
@@ -111,8 +108,7 @@ pub fn start(cookie_file: &Path, socks_port: u16) -> Result<VpnProcess> {
     if !cookie_file.exists() {
         bail!("cookie file does not exist: {}", cookie_file.display());
     }
-    let metadata = std::fs::metadata(cookie_file)
-        .with_context(|| format!("stat {}", cookie_file.display()))?;
+    let metadata = std::fs::metadata(cookie_file).with_context(|| format!("stat {}", cookie_file.display()))?;
     if metadata.len() == 0 {
         bail!("cookie file is empty: {}", cookie_file.display());
     }
@@ -136,8 +132,7 @@ pub fn start(cookie_file: &Path, socks_port: u16) -> Result<VpnProcess> {
         "starting openconnect → ocproxy"
     );
 
-    let cookie_fh = File::open(cookie_file)
-        .with_context(|| format!("opening cookie file {}", cookie_file.display()))?;
+    let cookie_fh = File::open(cookie_file).with_context(|| format!("opening cookie file {}", cookie_file.display()))?;
     let stdin = Stdio::from(cookie_fh);
 
     // We intentionally do NOT use `process_group(0)` / `start_new_session`:

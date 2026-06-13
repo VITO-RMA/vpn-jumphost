@@ -109,10 +109,7 @@ impl Supervisor {
 
         // Run the monitor loop concurrently with waiting for shutdown;
         // both exit as soon as `stop` is cancelled.
-        tokio::join!(
-            self.monitor_loop(stop.clone(), wake_notify),
-            stop.cancelled(),
-        );
+        tokio::join!(self.monitor_loop(stop.clone(), wake_notify), stop.cancelled(),);
 
         // Step 5: shut down everything.
         info!("supervisor: shutdown requested");
@@ -203,8 +200,7 @@ impl Supervisor {
 
     async fn monitor_loop(&self, stop: CancellationToken, wake: Arc<Notify>) {
         let check_interval = config::cookie_check_interval();
-        let poll_interval =
-            Duration::from_secs_f64((check_interval.as_secs_f64() / 4.0).clamp(1.0, 15.0));
+        let poll_interval = Duration::from_secs_f64((check_interval.as_secs_f64() / 4.0).clamp(1.0, 15.0));
         info!(
             poll_interval_s = poll_interval.as_secs_f64(),
             check_interval_s = check_interval.as_secs_f64(),
@@ -226,8 +222,7 @@ impl Supervisor {
             let wall_delta = now_wall.duration_since(last_wall).unwrap_or(Duration::ZERO);
             last_wall = now_wall;
 
-            let suspend_threshold =
-                Duration::from_secs_f64((poll_interval.as_secs_f64() * 4.0).max(30.0));
+            let suspend_threshold = Duration::from_secs_f64((poll_interval.as_secs_f64() * 4.0).max(30.0));
             let suspended = wall_delta > suspend_threshold;
             if wake_signaled {
                 info!("OS sleep/wake watcher reported resume; re-validating now");
@@ -257,9 +252,7 @@ impl Supervisor {
             // VPN liveness — restart from scratch if openconnect died.
             if !self.vpn_alive().await {
                 warn!("VPN process is not running; (re)starting");
-                if ensure_valid_cookie(&config::cookie_file_path(), &stop, self.options.no_headless)
-                    .await
-                {
+                if ensure_valid_cookie(&config::cookie_file_path(), &stop, self.options.no_headless).await {
                     if let Err(e) = self.start_vpn().await {
                         error!(error = %e, "failed to (re)start VPN");
                     }
@@ -274,12 +267,7 @@ impl Supervisor {
             let elapsed = now_mono.duration_since(last_check);
             if force_check || elapsed >= check_interval {
                 let rc = if force_check {
-                    validate_cookie_with_retry(
-                        &config::cookie_file_path(),
-                        &stop,
-                        Duration::from_secs(60),
-                    )
-                    .await
+                    validate_cookie_with_retry(&config::cookie_file_path(), &stop, Duration::from_secs(60)).await
                 } else {
                     cookie::validate_file(&config::cookie_file_path()).await
                 };
@@ -303,16 +291,8 @@ impl Supervisor {
                     }
                     CookieStatus::Invalid => {
                         last_check = now_mono;
-                        info!(
-                            "periodic check: cookie expired/invalid — refreshing and restarting VPN"
-                        );
-                        if refresh_cookie(
-                            &config::cookie_file_path(),
-                            &stop,
-                            self.options.no_headless,
-                        )
-                        .await
-                        {
+                        info!("periodic check: cookie expired/invalid — refreshing and restarting VPN");
+                        if refresh_cookie(&config::cookie_file_path(), &stop, self.options.no_headless).await {
                             self.restart_vpn().await;
                         } else {
                             error!("cookie refresh failed; will retry on next cycle");
@@ -331,11 +311,7 @@ impl Supervisor {
 /// Validate the cookie; refresh if expired/invalid. Returns true iff usable
 /// (a valid cookie, or NetworkError which we treat as "keep going and let
 /// openconnect decide").
-pub async fn ensure_valid_cookie(
-    cookie_file: &std::path::Path,
-    stop: &CancellationToken,
-    no_headless: bool,
-) -> bool {
+pub async fn ensure_valid_cookie(cookie_file: &std::path::Path, stop: &CancellationToken, no_headless: bool) -> bool {
     match cookie::validate_file(cookie_file).await {
         CookieStatus::Valid => {
             info!("VPN cookie is valid");
@@ -363,9 +339,7 @@ pub async fn ensure_valid_cookie(
 }
 
 fn cookie_exists_nonempty(path: &std::path::Path) -> bool {
-    std::fs::metadata(path)
-        .map(|m| m.is_file() && m.len() > 0)
-        .unwrap_or(false)
+    std::fs::metadata(path).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
 }
 
 async fn refresh_cookie(
@@ -402,11 +376,7 @@ async fn refresh_cookie(
     }
 }
 
-async fn validate_cookie_with_retry(
-    cookie_file: &std::path::Path,
-    stop: &CancellationToken,
-    max_wait: Duration,
-) -> CookieStatus {
+async fn validate_cookie_with_retry(cookie_file: &std::path::Path, stop: &CancellationToken, max_wait: Duration) -> CookieStatus {
     let deadline = Instant::now() + max_wait;
     let mut delay = Duration::from_secs(1);
     let mut attempts = 0u32;
@@ -455,11 +425,7 @@ enum WaitResult {
     Timeout,
 }
 
-async fn wait_for_stop_or_wake(
-    stop: &CancellationToken,
-    wake: &Notify,
-    timeout: Duration,
-) -> WaitResult {
+async fn wait_for_stop_or_wake(stop: &CancellationToken, wake: &Notify, timeout: Duration) -> WaitResult {
     tokio::select! {
         _ = stop.cancelled() => WaitResult::Stop,
         _ = wake.notified() => WaitResult::Wake,

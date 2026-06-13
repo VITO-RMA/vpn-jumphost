@@ -27,9 +27,7 @@ const KEY_PASSWORD: &str = "password";
 /// store initialisation failed.
 fn ensure_store() -> Result<(), String> {
     static RESULT: OnceLock<Result<(), String>> = OnceLock::new();
-    RESULT
-        .get_or_init(|| init_store().map_err(|e| e.to_string()))
-        .clone()
+    RESULT.get_or_init(|| init_store().map_err(|e| e.to_string())).clone()
 }
 
 /// Platform-specific store initialisation.
@@ -139,15 +137,11 @@ pub fn delete_credentials() -> anyhow::Result<()> {
                     debug!(key, "keyring entry not found (nothing to delete)");
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "failed to delete keyring entry '{key}': {e}"
-                    ));
+                    return Err(anyhow::anyhow!("failed to delete keyring entry '{key}': {e}"));
                 }
             },
             Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "failed to open keyring entry '{key}': {e}"
-                ));
+                return Err(anyhow::anyhow!("failed to open keyring entry '{key}': {e}"));
             }
         }
     }

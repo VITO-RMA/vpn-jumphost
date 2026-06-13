@@ -149,9 +149,7 @@ async fn send_error(stream: &mut TcpStream, rep: u8, msg: &str) -> io::Error {
 fn rep_for_io_error(e: &io::Error) -> u8 {
     match e.kind() {
         io::ErrorKind::ConnectionRefused => REP_CONN_REFUSED,
-        io::ErrorKind::AddrNotAvailable
-        | io::ErrorKind::ConnectionReset
-        | io::ErrorKind::TimedOut => REP_HOST_UNREACHABLE,
+        io::ErrorKind::AddrNotAvailable | io::ErrorKind::ConnectionReset | io::ErrorKind::TimedOut => REP_HOST_UNREACHABLE,
         _ => {
             if let Some(raw) = e.raw_os_error() {
                 // ENETUNREACH = 101 on Linux, 51 on macOS — accept either.
@@ -177,10 +175,7 @@ async fn client_greeting(stream: &mut TcpStream) -> io::Result<()> {
 
     if !methods.contains(&AUTH_NONE) {
         let _ = stream.write_all(&[SOCKS_VERSION, 0xFF]).await;
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "no acceptable auth method",
-        ));
+        return Err(io::Error::new(io::ErrorKind::Other, "no acceptable auth method"));
     }
 
     stream.write_all(&[SOCKS_VERSION, AUTH_NONE]).await?;
@@ -215,9 +210,8 @@ async fn client_request(stream: &mut TcpStream) -> io::Result<Target> {
             }
             let mut name = vec![0u8; len];
             stream.read_exact(&mut name).await?;
-            let domain = String::from_utf8(name).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "domain name is not valid UTF-8")
-            })?;
+            let domain =
+                String::from_utf8(name).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "domain name is not valid UTF-8"))?;
             let port = stream.read_u16().await?;
             Target::Domain(domain, port)
         }
@@ -228,9 +222,7 @@ async fn client_request(stream: &mut TcpStream) -> io::Result<Target> {
             Target::Ipv6(Ipv6Addr::from(addr), port)
         }
         _ => {
-            return Err(
-                send_error(stream, REP_ATYP_NOT_SUPPORTED, "unsupported address type").await,
-            );
+            return Err(send_error(stream, REP_ATYP_NOT_SUPPORTED, "unsupported address type").await);
         }
     };
 
@@ -251,17 +243,12 @@ async fn connect_direct(target: &Target) -> io::Result<TcpStream> {
 
 async fn connect_upstream(target: &Target, upstream_port: u16) -> io::Result<(TcpStream, Vec<u8>)> {
     let upstream_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, upstream_port));
-    let mut upstream = TcpStream::connect(upstream_addr).await.map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("failed to connect to upstream proxy at {upstream_addr}: {e}"),
-        )
-    })?;
+    let mut upstream = TcpStream::connect(upstream_addr)
+        .await
+        .map_err(|e| io::Error::new(e.kind(), format!("failed to connect to upstream proxy at {upstream_addr}: {e}")))?;
 
     // Greeting.
-    upstream
-        .write_all(&[SOCKS_VERSION, 0x01, AUTH_NONE])
-        .await?;
+    upstream.write_all(&[SOCKS_VERSION, 0x01, AUTH_NONE]).await?;
     let mut greeting_reply = [0u8; 2];
     upstream.read_exact(&mut greeting_reply).await?;
     if greeting_reply[0] != SOCKS_VERSION || greeting_reply[1] != AUTH_NONE {
@@ -288,10 +275,7 @@ async fn connect_upstream(target: &Target, upstream_port: u16) -> io::Result<(Tc
     let domain_bytes = domain.as_bytes();
     let domain_len = domain_bytes.len();
     if domain_len > 255 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "domain name exceeds 255 bytes",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "domain name exceeds 255 bytes"));
     }
 
     let mut req = Vec::with_capacity(4 + 1 + domain_len + 2);
@@ -353,11 +337,7 @@ async fn handle_client(mut client: TcpStream, peer: SocketAddr, upstream_port: u
     }
 }
 
-async fn handle_client_inner(
-    client: &mut TcpStream,
-    peer: SocketAddr,
-    upstream_port: u16,
-) -> io::Result<()> {
+async fn handle_client_inner(client: &mut TcpStream, peer: SocketAddr, upstream_port: u16) -> io::Result<()> {
     client_greeting(client).await?;
     let target = client_request(client).await?;
     let route = route_for(&target);
@@ -366,12 +346,8 @@ async fn handle_client_inner(
     match route {
         Route::Direct => match connect_direct(&target).await {
             Ok(outbound) => {
-                let bind_addr = outbound
-                    .local_addr()
-                    .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
-                client
-                    .write_all(&socks5_reply_with_bind(REP_SUCCESS, bind_addr))
-                    .await?;
+                let bind_addr = outbound.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
+                client.write_all(&socks5_reply_with_bind(REP_SUCCESS, bind_addr)).await?;
                 relay(client, outbound).await;
                 Ok(())
             }
@@ -415,12 +391,7 @@ async fn relay(client: &mut TcpStream, mut target: TcpStream) {
 ///
 /// `bind` and `port` control the listener; `upstream_port` is the loopback
 /// ocproxy SOCKS5 port that VPN-bound traffic is forwarded to.
-pub async fn run(
-    bind: &str,
-    port: u16,
-    upstream_port: u16,
-    shutdown: CancellationToken,
-) -> anyhow::Result<()> {
+pub async fn run(bind: &str, port: u16, upstream_port: u16, shutdown: CancellationToken) -> anyhow::Result<()> {
     let bind_addr: SocketAddr = format!("{bind}:{port}")
         .parse()
         .map_err(|e| anyhow::anyhow!("routing-proxy: invalid bind address {bind}:{port}: {e}"))?;

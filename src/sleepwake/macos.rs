@@ -17,9 +17,7 @@ use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::NSObjectProtocol;
-use objc2_foundation::{
-    NSDate, NSDefaultRunLoopMode, NSNotification, NSOperationQueue, NSRunLoop, NSString,
-};
+use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSNotification, NSOperationQueue, NSRunLoop, NSString};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
@@ -40,10 +38,7 @@ pub fn spawn() -> Option<SleepWakeHandle> {
 
     info!("subscribed to NSWorkspaceDidWakeNotification (macOS)");
 
-    Some(SleepWakeHandle {
-        on_resume,
-        shutdown,
-    })
+    Some(SleepWakeHandle { on_resume, shutdown })
 }
 
 fn run(on_resume: Arc<Notify>, shutdown: CancellationToken) {
@@ -63,9 +58,8 @@ fn run(on_resume: Arc<Notify>, shutdown: CancellationToken) {
 
         // `addObserverForName:object:queue:usingBlock:` returns an opaque
         // token we must retain so the observer stays registered.
-        let observer: Retained<ProtocolObject<dyn NSObjectProtocol>> = unsafe {
-            nc.addObserverForName_object_queue_usingBlock(Some(&name), None, queue, &block)
-        };
+        let observer: Retained<ProtocolObject<dyn NSObjectProtocol>> =
+            unsafe { nc.addObserverForName_object_queue_usingBlock(Some(&name), None, queue, &block) };
 
         // Run the runloop in 500 ms slices so we can check shutdown.
         let run_loop = NSRunLoop::currentRunLoop();
@@ -78,9 +72,7 @@ fn run(on_resume: Arc<Notify>, shutdown: CancellationToken) {
         // Best-effort cleanup before leaving the autorelease pool.
         // ProtocolObject and AnyObject are both #[repr(C)] wrappers around
         // objc_object, so the pointer cast is sound.
-        let observer_any: &AnyObject = unsafe {
-            &*(&*observer as *const ProtocolObject<dyn NSObjectProtocol> as *const AnyObject)
-        };
+        let observer_any: &AnyObject = unsafe { &*(&*observer as *const ProtocolObject<dyn NSObjectProtocol> as *const AnyObject) };
         unsafe {
             nc.removeObserver(observer_any);
         }

@@ -74,10 +74,7 @@ pub fn proxy_domains() -> &'static [String] {
                 return list.clone();
             }
         }
-        DEFAULT_PROXY_DOMAINS
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        DEFAULT_PROXY_DOMAINS.iter().map(|s| s.to_string()).collect()
     })
 }
 
@@ -94,10 +91,7 @@ pub fn direct_domains() -> &'static [String] {
                 return list.clone();
             }
         }
-        DEFAULT_DIRECT_DOMAINS
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        DEFAULT_DIRECT_DOMAINS.iter().map(|s| s.to_string()).collect()
     })
 }
 
@@ -191,10 +185,7 @@ pub fn vpn_credentials() -> Option<VpnCredentials> {
     // 2. OS keyring
     if let Some((u, p)) = credential_store::get_credentials() {
         if !u.is_empty() && !p.is_empty() {
-            return Some(VpnCredentials {
-                username: u,
-                password: p,
-            });
+            return Some(VpnCredentials { username: u, password: p });
         }
     }
 
@@ -275,9 +266,7 @@ pub fn serve_pac() -> bool {
 }
 
 pub fn cookie_check_interval() -> Duration {
-    let secs = config_file::get()
-        .check_interval
-        .unwrap_or(DEFAULT_CHECK_INTERVAL_SECS as f64);
+    let secs = config_file::get().check_interval.unwrap_or(DEFAULT_CHECK_INTERVAL_SECS as f64);
     Duration::from_secs_f64(secs.max(1.0))
 }
 

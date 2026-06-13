@@ -210,8 +210,7 @@ async fn cmd_test_notification() -> ExitCode {
             .appname("jumphost");
         #[cfg(target_os = "linux")]
         {
-            n.icon("dialog-information")
-                .urgency(notify_rust::Urgency::Normal);
+            n.icon("dialog-information").urgency(notify_rust::Urgency::Normal);
         }
         n.show()
     })
@@ -314,11 +313,7 @@ async fn cmd_deauthenticate() -> ExitCode {
         }
     }
 
-    if ok {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
 
 fn install_signal_handlers(stop: CancellationToken) {
