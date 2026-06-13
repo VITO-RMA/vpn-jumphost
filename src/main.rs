@@ -12,7 +12,8 @@ mod vpn;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::{Shell, generate};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -56,6 +57,8 @@ enum Command {
     /// Send a test desktop notification to verify that the notification
     /// system is working (macOS Notification Center / Linux D-Bus).
     TestNotification,
+    /// Print a shell completion script for the given shell to stdout.
+    GenerateCompletions(GenerateCompletionsArgs),
 }
 
 #[derive(Args, Debug, Default, Clone)]
@@ -70,11 +73,18 @@ struct RunArgs {
 
 #[derive(Args, Debug, Clone)]
 struct AuthenticateArgs {
-    /// Launch the browser in headless mode (no visible window). If an
-    /// MFA/2FA prompt is detected, the browser is automatically
-    /// relaunched with a visible window for user interaction.
+    /// Disable headless cookie refresh. By default the supervisor uses
+    /// headless mode when credentials are configured and shows an MFA
+    /// desktop notification. This flag forces it to always open a visible
+    /// browser window instead.
     #[arg(long)]
-    headless: bool,
+    no_headless: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+struct GenerateCompletionsArgs {
+    /// Shell to generate completions for (bash, zsh, fish, powershell, elvish).
+    shell: Shell,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -118,10 +128,17 @@ async fn main() -> ExitCode {
         Command::Authenticate(args) => cmd_authenticate(args).await,
         Command::Deauthenticate => cmd_deauthenticate().await,
         Command::TestNotification => cmd_test_notification().await,
+        Command::GenerateCompletions(args) => cmd_generate_completions(args),
     }
 }
 
 // ── Subcommands ───────────────────────────────────────────────────────────
+
+fn cmd_generate_completions(args: GenerateCompletionsArgs) -> ExitCode {
+    let mut cmd = Cli::command();
+    generate(args.shell, &mut cmd, "jumphost", &mut std::io::stdout());
+    ExitCode::SUCCESS
+}
 
 async fn cmd_run(args: RunArgs) -> ExitCode {
     let options = SupervisorOptions {
@@ -252,7 +269,7 @@ async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
     install_signal_handlers(stop.clone());
 
     let opts = FetchOptions {
-        headless: args.headless,
+        headless: !args.no_headless,
         stop,
         ..FetchOptions::default()
     };

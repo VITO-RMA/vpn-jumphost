@@ -39,4 +39,13 @@ package() {
 
   # Example config
   install -Dm644 docs/config.example.toml "$pkgdir/usr/share/vpn-jumphost/config.example.toml"
+
+  # Shell completions
+  local bin="./target/release/jumphost"
+  install -d "$pkgdir/usr/share/bash-completion/completions"
+  install -d "$pkgdir/usr/share/zsh/site-functions"
+  install -d "$pkgdir/usr/share/fish/vendor_completions.d"
+  "$bin" generate-completions bash > "$pkgdir/usr/share/bash-completion/completions/jumphost"
+  "$bin" generate-completions zsh  > "$pkgdir/usr/share/zsh/site-functions/_jumphost"
+  "$bin" generate-completions fish > "$pkgdir/usr/share/fish/vendor_completions.d/jumphost.fish"
 }

@@ -35,6 +35,14 @@ trap 'rm -rf "$STAGE" "$SCRIPTS"' EXIT
 install -d "$STAGE/usr/local/bin"
 install -m 755 "$BINARY" "$STAGE/usr/local/bin/jumphost"
 
+# Shell completions (bash, zsh, fish)
+install -d "$STAGE/usr/local/etc/bash_completion.d"
+install -d "$STAGE/usr/local/share/zsh/site-functions"
+install -d "$STAGE/usr/local/share/fish/vendor_completions.d"
+"$BINARY" generate-completions bash > "$STAGE/usr/local/etc/bash_completion.d/jumphost"
+"$BINARY" generate-completions zsh  > "$STAGE/usr/local/share/zsh/site-functions/_jumphost"
+"$BINARY" generate-completions fish > "$STAGE/usr/local/share/fish/vendor_completions.d/jumphost.fish"
+
 # /usr/local/share/vpn-jumphost/ (launchd plist + example config)
 install -d "$STAGE/usr/local/share/vpn-jumphost"
 install -m 644 "$SCRIPT_DIR/sas.vpn-jumphost.plist" \

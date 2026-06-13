@@ -50,7 +50,10 @@
               rm -f .cargo/config.toml
             '';
 
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+            nativeBuildInputs = [
+              pkgs.makeWrapper
+              pkgs.installShellFiles
+            ];
 
             buildInputs = [
               # Runtime dependencies — the supervisor spawns
@@ -87,6 +90,11 @@
                 ];
               in
               ''
+                installShellCompletion --cmd jumphost \
+                  --bash <($out/bin/jumphost generate-completions bash) \
+                  --zsh <($out/bin/jumphost generate-completions zsh) \
+                  --fish <($out/bin/jumphost generate-completions fish)
+
                 wrapProgram $out/bin/jumphost \
                   --prefix PATH : ${pkgs.lib.makeBinPath runtimeDeps}
               '';

@@ -50,6 +50,12 @@ build-package: build-image
             install -m 755 contrib/debian/prerm "$pkg_root/DEBIAN/prerm"; \
             install -m 755 contrib/debian/postrm "$pkg_root/DEBIAN/postrm"; \
             install -m 755 "$target_dir/release/jumphost" "$pkg_root/usr/bin/jumphost"; \
+            install -d "$pkg_root/usr/share/bash-completion/completions"; \
+            install -d "$pkg_root/usr/share/zsh/vendor-completions"; \
+            install -d "$pkg_root/usr/share/fish/vendor_completions.d"; \
+            "$target_dir/release/jumphost" generate-completions bash > "$pkg_root/usr/share/bash-completion/completions/jumphost"; \
+            "$target_dir/release/jumphost" generate-completions zsh  > "$pkg_root/usr/share/zsh/vendor-completions/_jumphost"; \
+            "$target_dir/release/jumphost" generate-completions fish > "$pkg_root/usr/share/fish/vendor_completions.d/jumphost.fish"; \
             install -m 644 contrib/debian/vpn-jumphost.service "$pkg_root/usr/lib/systemd/user/vpn-jumphost.service"; \
             install -m 644 docs/config.example.toml "$pkg_root/usr/share/vpn-jumphost/config.example.toml"; \
             install -m 644 README.md "$pkg_root/usr/share/doc/vpn-jumphost/README.md"; \
@@ -91,6 +97,9 @@ test-install: build-package
             test -f /usr/lib/systemd/user/{{ service_name }}; \
             grep -q "^ExecStart=/usr/bin/jumphost run --serve-pac$" /usr/lib/systemd/user/{{ service_name }}; \
             test -f /usr/share/vpn-jumphost/config.example.toml; \
+            test -f /usr/share/bash-completion/completions/jumphost; \
+            test -f /usr/share/zsh/vendor-completions/_jumphost; \
+            test -f /usr/share/fish/vendor_completions.d/jumphost.fish; \
             test -f /usr/share/doc/{{ pkg_name }}/README.md; \
             if command -v systemd-analyze >/dev/null 2>&1; then \
                 systemd-analyze verify --man=no /usr/lib/systemd/user/{{ service_name }}; \
