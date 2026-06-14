@@ -53,6 +53,7 @@
             nativeBuildInputs = [
               pkgs.makeWrapper
               pkgs.installShellFiles
+              pkgs.pkg-config
             ];
 
             buildInputs = [
@@ -61,6 +62,7 @@
               # ocproxy. Cookie refresh drives Chromium via CDP.
               pkgs.openconnect
               pkgs.ocproxy
+              pkgs.dbus
             ]
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               pkgs.chromium
