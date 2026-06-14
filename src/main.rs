@@ -41,23 +41,17 @@ struct Cli {
 enum Command {
     /// Store VPN credentials in the OS keyring and validate vpn login
     Authenticate(AuthenticateArgs),
-    /// Remove stored credentials from the OS keyring and delete the
-    /// cookie file and browser profile directory.
+    /// Remove stored credentials and delete the vpn cookie
     Deauthenticate,
-    /// Run the supervisor: openconnect + ocproxy + routing proxy +
-    /// (optional) PAC server + periodic cookie check. (Default
-    /// subcommand if none is given.)
+    /// Run the VPN jumphost
     Run(RunArgs),
-    /// Validate the current cookie file against the VPN endpoint.
-    /// Requires authentication first
-    /// Exit codes: 0 = valid, 1 = invalid, 2 = network error.
+    /// Validate the current cookie file against the VPN endpoint. Requires authentication
     ValidateCookie,
-    /// Print the generated PAC file to stdout (or to a file).
+    /// Generate a PAC file.
     GeneratePac(GeneratePacArgs),
-    /// Send a test desktop notification to verify that the notification
-    /// system is working (macOS Notification Center / Linux D-Bus).
+    /// Send a test desktop notification to verify that the notification system is working
     TestNotification,
-    /// Print a shell completion script for the given shell to stdout.
+    /// Print a shell completion script for the given shell
     GenerateCompletions(GenerateCompletionsArgs),
 }
 
