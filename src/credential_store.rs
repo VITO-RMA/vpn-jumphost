@@ -13,13 +13,8 @@ use std::sync::OnceLock;
 
 use tracing::{debug, warn};
 
-/// Keyring service name used for all entries.
 const SERVICE: &str = "vpn-jumphost";
-
-/// Keyring user key for the VPN username entry.
 const KEY_USERNAME: &str = "username";
-
-/// Keyring user key for the VPN password entry.
 const KEY_PASSWORD: &str = "password";
 
 /// Ensure the platform-appropriate default credential store is set up
@@ -66,6 +61,34 @@ pub fn store_credentials(username: &str, password: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Read a single non-empty credential from the OS keyring.
+///
+/// Returns `Some(value)` when the entry exists and is non-empty,
+/// `None` otherwise (with appropriate debug/warn logging).
+fn read_entry(key: &str) -> Option<String> {
+    match keyring_core::Entry::new(SERVICE, key) {
+        Ok(entry) => match entry.get_password() {
+            Ok(val) if !val.is_empty() => Some(val),
+            Ok(_) => {
+                debug!(key, "keyring: entry is empty");
+                None
+            }
+            Err(keyring_core::Error::NoEntry) => {
+                debug!(key, "keyring: no entry");
+                None
+            }
+            Err(e) => {
+                warn!(key, error = %e, "keyring: could not read entry");
+                None
+            }
+        },
+        Err(e) => {
+            warn!(key, error = %e, "keyring: could not open entry");
+            None
+        }
+    }
+}
+
 /// Retrieve VPN credentials from the OS keyring.
 ///
 /// Returns `Some((username, password))` if both are present and
@@ -76,49 +99,8 @@ pub fn get_credentials() -> Option<(String, String)> {
         return None;
     }
 
-    let username = match keyring_core::Entry::new(SERVICE, KEY_USERNAME) {
-        Ok(entry) => match entry.get_password() {
-            Ok(val) if !val.is_empty() => val,
-            Ok(_) => {
-                debug!("keyring: username entry is empty");
-                return None;
-            }
-            Err(keyring_core::Error::NoEntry) => {
-                debug!("keyring: no username entry");
-                return None;
-            }
-            Err(e) => {
-                warn!(error = %e, "keyring: could not read username");
-                return None;
-            }
-        },
-        Err(e) => {
-            warn!(error = %e, "keyring: could not open username entry");
-            return None;
-        }
-    };
-
-    let password = match keyring_core::Entry::new(SERVICE, KEY_PASSWORD) {
-        Ok(entry) => match entry.get_password() {
-            Ok(val) if !val.is_empty() => val,
-            Ok(_) => {
-                debug!("keyring: password entry is empty");
-                return None;
-            }
-            Err(keyring_core::Error::NoEntry) => {
-                debug!("keyring: no password entry");
-                return None;
-            }
-            Err(e) => {
-                warn!(error = %e, "keyring: could not read password");
-                return None;
-            }
-        },
-        Err(e) => {
-            warn!(error = %e, "keyring: could not open password entry");
-            return None;
-        }
-    };
+    let username = read_entry(KEY_USERNAME)?;
+    let password = read_entry(KEY_PASSWORD)?;
 
     Some((username, password))
 }
