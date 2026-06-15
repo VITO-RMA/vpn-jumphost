@@ -2,6 +2,7 @@ mod config;
 mod config_file;
 mod cookie;
 mod credential_store;
+mod doctor;
 mod jumphost;
 mod logging;
 mod pac;
@@ -53,6 +54,8 @@ enum Command {
     TestNotification,
     /// Print a shell completion script for the given shell
     GenerateCompletions(GenerateCompletionsArgs),
+    /// Run health checks for config, cookie, listeners, and proxychains
+    Doctor,
 }
 
 #[derive(Args, Debug, Default, Clone)]
@@ -123,6 +126,7 @@ async fn main() -> ExitCode {
         Command::Deauthenticate => cmd_deauthenticate().await,
         Command::TestNotification => cmd_test_notification().await,
         Command::GenerateCompletions(args) => cmd_generate_completions(args),
+        Command::Doctor => doctor::run().await,
     }
 }
 

@@ -26,6 +26,10 @@ fetch-cookie:
 validate-cookie:
     @cargo run --release --quiet -- validate-cookie
 
+# Run setup health checks (config, cookie, listeners, proxychains).
+doctor:
+    @cargo run --release --quiet -- doctor
+
 # Regenerate proxy.pac with the configured domain lists.
 pac-gen:
     @cargo run --release --quiet -- -c docs/config.example.toml generate-pac ./proxy.pac
