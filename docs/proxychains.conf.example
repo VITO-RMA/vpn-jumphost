@@ -1,0 +1,12 @@
+# Example proxychains config for vpn-jumphost.
+#
+# macOS (Homebrew):  cp to ~/.proxychains/proxychains.conf
+# Debian/Ubuntu:     merge into /etc/proxychains4.conf (or use -f)
+#
+# Or run:  just proxychains-setup
+
+strict_chain
+proxy_dns
+
+[ProxyList]
+socks5 127.0.0.1 1081

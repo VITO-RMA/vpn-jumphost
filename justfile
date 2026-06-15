@@ -125,3 +125,52 @@ test-cluster HOST="develop.marvin.vito.local":
          -o LogLevel=ERROR \
          {{ HOST }} \
          'echo "--- $(hostname) ---"; uname -srm; uptime'
+
+# Install docs/proxychains.conf.example to ~/.proxychains/proxychains.conf
+# (skips if the file already exists). Requires proxychains-ng / proxychains4.
+proxychains-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="$HOME/.proxychains/proxychains.conf"
+    if [[ -f "$dest" ]]; then
+      echo "proxychains-setup: already exists: $dest"
+      exit 0
+    fi
+    for cmd in proxychains4 proxychains proxychains-ng; do
+      if command -v "$cmd" >/dev/null 2>&1; then
+        mkdir -p "$(dirname "$dest")"
+        cp docs/proxychains.conf.example "$dest"
+        echo "proxychains-setup: wrote $dest"
+        exit 0
+      fi
+    done
+    echo "proxychains-setup: install proxychains first (macOS: brew install proxychains-ng; Debian/Ubuntu: apt install proxychains4)" >&2
+    exit 1
+
+# Run any command through proxychains → routing proxy :1081.
+# Example: just pc -- psql -h climkit.marvin.vito.local -U me -d mydb
+pc +ARGS:
+    @chmod +x scripts/proxychains-wrap.sh
+    @./scripts/proxychains-wrap.sh {{ARGS}}
+
+# Launch DBeaver through proxychains. Override path with DBEAVER_BIN.
+dbeaver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    chmod +x scripts/proxychains-wrap.sh
+    if [[ -n "${DBEAVER_BIN:-}" ]]; then
+      exec ./scripts/proxychains-wrap.sh "$DBEAVER_BIN"
+    fi
+    if [[ "$(uname -s)" == Darwin && -x /Applications/DBeaver.app/Contents/MacOS/dbeaver ]]; then
+      exec ./scripts/proxychains-wrap.sh /Applications/DBeaver.app/Contents/MacOS/dbeaver
+    fi
+    if command -v dbeaver >/dev/null 2>&1; then
+      exec ./scripts/proxychains-wrap.sh "$(command -v dbeaver)"
+    fi
+    echo "dbeaver: not found — set DBEAVER_BIN to the DBeaver executable" >&2
+    exit 1
+
+# Smoke-test Postgres TCP reachability via the routing proxy.
+test-db HOST="climkit.marvin.vito.local" PORT="5432":
+    @echo "→ nc via socks5://127.0.0.1:1081 → {{ HOST }}:{{ PORT }}"
+    @nc -z -X 5 -x 127.0.0.1:1081 -w 5 {{ HOST }} {{ PORT }}

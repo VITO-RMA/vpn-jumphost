@@ -114,6 +114,7 @@ There is no shell wrapper and no `exec` dance — the binary owns the openconnec
 - **Browser with PAC:** Browsers use the PAC file at `http://127.0.0.1:8091/proxy.pac` for automatic proxy configuration. The PAC points at `SOCKS5 127.0.0.1:1080` (ocproxy) because the PAC script already applies per-domain rules. Non-browser tools use the routing proxy on 1081 instead.
 - **CLI tools:** Use `--proxy socks5h://127.0.0.1:1081` or set `ALL_PROXY=socks5h://127.0.0.1:1081`. VPN-vs-direct routing is handled transparently by the routing proxy.
 - **SSH:** Uses **`ProxyCommand`** with `nc -X 5 -x 127.0.0.1:1081` — see [`ssh.md`](ssh.md). Domains listed in `[domains].proxy` are routed through the VPN automatically.
+- **Database clients (DBeaver, psql):** JDBC and GUI clients do not speak SOCKS5; wrap the app with proxychains or Proxifier — see [`databases.md`](databases.md).
 - **VPN portal:** Always connects directly when listed in `[domains].direct`, so the VPN portal is reachable even when the tunnel is down.
 
 ## Related documentation
@@ -121,3 +122,4 @@ There is no shell wrapper and no `exec` dance — the binary owns the openconnec
 - [Running the services (devenv)](run.md) — flags, ports, cookies.
 - [PAC files and local proxies](pac.md) — domain-based rules, loopback PAC server.
 - [SSH via `ProxyCommand`](ssh.md) — reaching internal hosts over SSH.
+- [PostgreSQL / DBeaver via proxychains](databases.md) — GUI database clients through the routing proxy.
