@@ -236,6 +236,12 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just start` | Runs `./target/release/jumphost -c docs/config.example.toml run` in the foreground (Ctrl-C to stop). Starts openconnect + ocproxy, the routing proxy on `127.0.0.1:1081`, and the loopback PAC server (example config sets `serve_pac = true`). Uses the example config for VPN URL + domain lists; override with a user-local `config.toml` or env vars. |
 | `just start-detached` | Wraps the same `jumphost run` command with `nohup`, redirecting stdout/stderr to `~/.local/state/vpn-jumphost/jumphost.log` and writing the PID to `jumphost.pid`. The binary itself no longer daemonizes (the old `-d/--daemonize` flag is gone); the recipe handles backgrounding. |
 | `just stop` | Reads PID from `~/.local/state/vpn-jumphost/jumphost.pid` and sends SIGTERM, tearing down the tunnel, routing proxy, and PAC server. |
+| `just test-curl [URL]` | Smoke-test HTTP via `socks5h://127.0.0.1:1081` (default URL: `https://jenkins-rma.int.vito.be`). |
+| `just test-cluster [HOST]` | Smoke-test SSH via routing proxy (default: `develop.marvin.vito.local`). |
+| `just test-db [HOST] [PORT]` | Smoke-test Postgres TCP via routing proxy (default: `climkit.marvin.vito.local:5432`). |
+| `just proxychains-setup` | Copy `docs/proxychains.conf.example` to `~/.proxychains/proxychains.conf` if missing. |
+| `just pc -- COMMAND …` | Run any command through `scripts/proxychains-wrap.sh` → proxychains → `:1081`. |
+| `just dbeaver` | Launch DBeaver through proxychains (`DBEAVER_BIN` overrides auto-detect). |
 | `just current-version` | Prints the latest semver release tag from git |
 | `just release major\|minor\|patch` | Validates level / main / clean state, computes the next semver tag, then tags and pushes `main` + tag |
 
@@ -278,7 +284,19 @@ jumphost authenticate --delete
   i.e. SOCKS5 via the routing proxy (which transparently forwards to ocproxy).
 - The `Host *` stanza at the end carries shared defaults (identity, ControlMaster, keepalives).
 
-**Usage:** Copy into `~/.ssh/config` or use OpenSSH `Include` directive.
+**Usage:** Copy into `~/.ssh/config` or use OpenSSH `Include` directive. See [docs/ssh.md](docs/ssh.md).
+
+### 10. Database clients (PostgreSQL / DBeaver)
+
+**What it does:** Documents how to reach internal PostgreSQL databases through the routing proxy when the client does not support SOCKS5 natively (typical for DBeaver, DataGrip, pgAdmin, and most JDBC drivers).
+
+**How it works:**
+- Wrap the client with **proxychains** or **Proxifier** so all outbound TCP uses SOCKS5 `127.0.0.1:1081`.
+- Enable `proxy_dns` in proxychains so internal hostnames (e.g. `*.vito.local`) resolve through the VPN.
+- Create connections with the real database hostname and port; leave SSH tunneling disabled in the client.
+- Scales to many databases: one wrapper setup, unlimited connections by hostname.
+
+**Usage:** See [docs/databases.md](docs/databases.md). Helpers: `just proxychains-setup`, `just pc`, `just dbeaver`, `just test-db`, [`scripts/proxychains-wrap.sh`](scripts/proxychains-wrap.sh), [`docs/proxychains.conf.example`](docs/proxychains.conf.example).
 
 ---
 

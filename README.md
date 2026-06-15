@@ -98,7 +98,13 @@ git config --global http.proxy socks5h://127.0.0.1:1081
 
 # SSH (see docs/ssh.md for persistent config)
 ssh -o 'ProxyCommand=nc -x 127.0.0.1:1081 -X 5 %h %p' user@host
+
+# PostgreSQL / DBeaver (see docs/databases.md)
+just proxychains-setup && just dbeaver
+just pc -- psql -h db.example.local -p 5432 -U user -d mydb
 ```
 
 Configure your browser to use the proxy pac at `http://127.0.0.1:8091` for automatic per-domain proxying.
 Or use the routing proxy directly at `socks5h://127.0.0.1:1081` for applications that do not support PAC files to let the jumphost handle all routing logic.
+
+For GUI database clients (DBeaver, DataGrip), see [docs/databases.md](docs/databases.md).

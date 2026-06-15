@@ -19,6 +19,8 @@ Always update the documentation when changing the code. The files listed below f
 | [`docs/run.md`](docs/run.md) | Running the services via `just start` / `devenv up`, manual usage, requirements/limitations |
 | [`docs/pac.md`](docs/pac.md) | PAC generation, serving, desktop proxy setup |
 | [`docs/ssh.md`](docs/ssh.md) | SSH `ProxyCommand` examples and `ssh-config` usage |
+| [`docs/databases.md`](docs/databases.md) | PostgreSQL / DBeaver via proxychains or Proxifier through the routing proxy |
+| [`docs/proxychains.conf.example`](docs/proxychains.conf.example) | Example proxychains config pointing at routing proxy :1081 |
 
 When changing code, check every file in this table and update any that reference the changed behavior. For example, adding a new environment variable requires updates to `spec.md` (Configuration section) and whichever `docs/` page covers that feature.
 
@@ -61,7 +63,7 @@ The only remaining shell script is [`scripts/jumphost-wizard.sh`](scripts/jumpho
 | New environment variable | Environment variables are not used for configuration (except `VPN_USERNAME` / `VPN_PASSWORD`). Use config file fields or CLI flags instead. |
 | New config file option | `src/config_file.rs` (struct field + TOML table), `src/config.rs` (lookup helper mapping), `spec.md` (Config File table), `README.md` (if user-visible) |
 | New port | The module that binds it (`src/vpn.rs`, `src/routing.rs`, `src/pac.rs`, …), `src/config.rs` (constant), `src/config_file.rs` (TOML field), `spec.md` (Port Allocation table + Config File table), `docs/run.md`, `docs/architecture.md`, `README.md` (Ports table), `docs/config.example.toml` (if it should ship a default) |
-| New `just` recipe | `justfile`, `README.md` (recipes list in Quick start), `spec.md` (Task Runner table) |
+| New `just` recipe | `justfile`, `README.md` (recipes list in Quick start), `spec.md` (Task Runner table), relevant `docs/` page |
 | PAC logic change | `src/pac.rs` (and `src/config.rs` for the domain constants), `spec.md` (PAC Generation feature + Routing Proxy feature), `docs/pac.md` |
 | Routing proxy logic change | `src/routing.rs`, plus `src/config.rs` if the domain constants change. `spec.md` (Routing Proxy feature), `docs/architecture.md`, `docs/pac.md` |
 | Cookie refresh / validation logic | `src/cookie.rs`, `src/credential_store.rs`, `src/jumphost.rs` (supervisor monitor loop integration), `spec.md` (Cookie Ingestion Flow + env vars), `docs/run.md` (Cookie sources), `README.md` (Cookie methods) |
