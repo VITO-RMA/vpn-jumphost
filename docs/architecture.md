@@ -111,7 +111,7 @@ There is no shell wrapper and no `exec` dance — the binary owns the openconnec
 `just start` uses the example config with `serve_pac = true`. The routing proxy always starts on port 1081 and ocproxy lives on port 1080 behind it. Clients always point at `127.0.0.1:1081`:
 
 - **Any SOCKS5 client** (browser, git, curl, SSH): point at `socks5h://127.0.0.1:1081`. The routing proxy checks the destination domain against the effective domain lists (from `config.toml` or compiled-in defaults in [`src/config.rs`](../src/config.rs)) and either forwards VPN-domain traffic to ocproxy (port 1080) or connects directly.
-- **Browser with PAC:** Browsers can use the PAC file at `http://127.0.0.1:8091/proxy.pac` for automatic proxy configuration. The PAC points at `SOCKS5 127.0.0.1:1081`.
+- **Browser with PAC:** Browsers use the PAC file at `http://127.0.0.1:8091/proxy.pac` for automatic proxy configuration. The PAC points at `SOCKS5 127.0.0.1:1080` (ocproxy) because the PAC script already applies per-domain rules. Non-browser tools use the routing proxy on 1081 instead.
 - **CLI tools:** Use `--proxy socks5h://127.0.0.1:1081` or set `ALL_PROXY=socks5h://127.0.0.1:1081`. VPN-vs-direct routing is handled transparently by the routing proxy.
 - **SSH:** Uses **`ProxyCommand`** with `nc -X 5 -x 127.0.0.1:1081` — see [`ssh.md`](ssh.md). Domains listed in `[domains].proxy` are routed through the VPN automatically.
 - **VPN portal:** Always connects directly when listed in `[domains].direct`, so the VPN portal is reachable even when the tunnel is down.

@@ -1,8 +1,10 @@
 //! PAC (Proxy Auto-Configuration) generation and serving.
 //!
 //! - [`generate`] produces the PAC JavaScript text from the routing
-//!   constants in [`crate::config`]. The proxy chain is always
-//!   `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT`.
+//!   constants in [`crate::config`]. The proxy chain points at ocproxy
+//!   (`SOCKS5 127.0.0.1:<socks_port>; DIRECT`) because the PAC script
+//!   already selects VPN vs direct domains; the routing proxy on 1081 is
+//!   for non-PAC clients (curl, git, SSH via `1081`).
 //! - [`serve`] runs a tiny HTTP/1.1 server on `bind:port` that serves the
 //!   generated PAC on every path with `Content-Type: application/x-ns-proxy-autoconfig`.
 //!   Replaces `miniserve`; the body is regenerated from the current
@@ -42,7 +44,8 @@ fn build_direct_rules(domains: &[&str]) -> String {
     let mut blocks = Vec::with_capacity(domains.len());
     for d in domains {
         blocks.push(format!(
-            "  if ({cond}) {{\n    return \"DIRECT\";\n  }}",
+            "  if ({cond}) {{\n    return \"DIRECT\";\n  }}\n  \
+             if (url.indexOf(\"{d}\") !== -1) {{\n    return \"DIRECT\";\n  }}",
             cond = domain_condition(d),
         ));
     }
@@ -51,11 +54,12 @@ fn build_direct_rules(domains: &[&str]) -> String {
 
 /// Generate the PAC file text using the current configuration.
 ///
-/// The proxy chain is always `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT`,
-/// using the same bind/port settings as the routing proxy itself.
+/// The proxy chain is `SOCKS5 127.0.0.1:<socks_port>; DIRECT`, pointing at
+/// ocproxy. Domain routing is handled in this script; non-PAC clients use
+/// the routing proxy on port 1081 instead.
 pub fn generate() -> String {
     let proxy_host = config::cfg_string("ROUTING_PROXY_BIND", config::DEFAULT_ROUTING_PROXY_BIND);
-    let socks_port = config::cfg_u16("ROUTING_PROXY_PORT", config::DEFAULT_ROUTING_PROXY_PORT);
+    let socks_port = config::cfg_u16("SOCKS_PORT", config::DEFAULT_SOCKS_PORT);
     let proxy_chain = format!("SOCKS5 {proxy_host}:{socks_port}; DIRECT");
 
     let direct = config::direct_domains();
@@ -126,7 +130,7 @@ mod tests {
     #[test]
     fn pac_default_chain_format() {
         let pac = generate();
-        assert!(pac.contains("SOCKS5 127.0.0.1:1081; DIRECT"));
+        assert!(pac.contains("SOCKS5 127.0.0.1:1080; DIRECT"));
     }
 
     #[test]
@@ -138,11 +142,13 @@ mod tests {
     }
 
     #[test]
-    fn pac_direct_domains_no_url_indexof() {
+    fn pac_direct_domains_include_url_indexof() {
         let pac = generate();
-        // Direct-domain rules must use host-based checks only; a url.indexOf
-        // check is redundant and can produce false positives when the direct
-        // domain appears in the path or query of a proxied URL.
-        assert!(!pac.contains("url.indexOf"), "PAC should not contain url.indexOf checks");
+        for d in config::direct_domains() {
+            assert!(
+                pac.contains(&format!("url.indexOf(\"{d}\")")),
+                "PAC should include url.indexOf fallback for direct domain {d}"
+            );
+        }
     }
 }
