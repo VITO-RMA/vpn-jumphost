@@ -155,18 +155,18 @@ export ALL_PROXY=socks5h://127.0.0.1:1081
 **What it does:** Generates a JavaScript PAC file that instructs browsers which traffic to proxy and which to send direct.
 
 **How it works:**
-- Implemented in `src/pac.rs`. The generator reads `PROXY_DOMAINS` and `DIRECT_DOMAINS` from `src/config.rs` (the same constants the routing proxy uses). The proxy chain is always `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT` — the same address/port the routing proxy itself listens on.
+- Implemented in `src/pac.rs`. The generator reads `PROXY_DOMAINS` and `DIRECT_DOMAINS` from `src/config.rs` (the same constants the routing proxy uses). The proxy chain is `SOCKS5 127.0.0.1:<socks_port>; DIRECT` — pointing at **ocproxy** (default port 1080), not the routing proxy. The PAC script already selects VPN vs direct domains; the routing proxy on 1081 is for non-PAC clients (curl, git, SSH).
 - Domain lists (loaded from `config.toml` at startup):
   - `PROXY_DOMAINS` = configured via `[domains].proxy` in `config.toml` (no compiled-in defaults; see [`docs/config.example.toml`](docs/config.example.toml) for VITO defaults)
   - `DIRECT_DOMAINS` = configured via `[domains].direct` in `config.toml` (no compiled-in defaults)
 - Outputs a `FindProxyForURL` function with these rules (evaluated in order):
-  1. Always-DIRECT domains (from `[domains].direct`; checked before DNS resolution).
-  2. Matched domains → `SOCKS5 <routing_proxy.bind>:<routing_proxy.port>; DIRECT`.
+  1. Always-DIRECT domains (from `[domains].direct`; checked before DNS resolution, plus a `url.indexOf` fallback for the VPN portal hostname in the full URL).
+  2. Matched domains → `SOCKS5 127.0.0.1:<socks_port>; DIRECT`.
   3. Everything else → `DIRECT`.
 - Domain matching uses `host === "X" || dnsDomainIs(host, ".X")` for bare domains.
 
 **CLI:** `jumphost generate-pac [PATH]` — writes the PAC text to `PATH` if given, otherwise stdout.
-**Inputs:** `routing_proxy.bind`, `routing_proxy.port`, domain lists, output path.
+**Inputs:** `socks_port`, domain lists, output path.
 **Outputs:** A `.pac` JavaScript file.
 
 ### 4. PAC Serving (Host-Side Loopback)
