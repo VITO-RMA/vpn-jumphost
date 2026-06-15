@@ -68,15 +68,6 @@ vpn_url = "https://byod.vito.be"
 proxy = ["vito.be", "vito.local", "int.vito.be", "int.energyville.be"]
 direct = ["byod.vito.be"]
 
-# -- Credentials (optional) -------------------------------------------
-#
-# When both username and password resolve to non-empty values, the
-# browser-based cookie fetch can pre-fill the SSO form automatically.
-# Precedence per field: VPN_USERNAME/VPN_PASSWORD env var > OS keyring
-# (`jumphost authenticate`) > config value > config *_file path.
-
 [credentials]
-# username = "user@vito.be"
-# password = "changeme"             # prefer password_file instead
 # username_file = "/run/secrets/vpn_user"
 # password_file = "/run/secrets/vpn_pass"

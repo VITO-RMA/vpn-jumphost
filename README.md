@@ -1,10 +1,10 @@
 # VPN Jumphost
 
-A userspace VPN proxy that connects to an F5 VPN via `openconnect` + `ocproxy` and exposes a local SOCKS5 proxy on `socks5h://127.0.0.1:1081`. Traffic is routed per-domain: VPN-bound domains go through the tunnel, everything else connects directly. No `sudo`, no kernel TUN device, no Docker — everything runs as your normal user.
+A userspace VPN proxy that connects to an F5 VPN via `openconnect` + `ocproxy` and exposes a local SOCKS5 proxy. Traffic is routed per-domain: VPN-bound domains go through the tunnel, everything else connects directly. No `sudo`, no kernel TUN device, no Docker — everything runs as your normal user.
 
 - Two socks5 proxies will be running:
-  - one on port 1080 that routes all traffic through the VPN
-  - one on port 1081 that routes per-domain based on the config (VPN for internal domains, direct for everything else)
+  - `socks5h://127.0.0.1:1080` that routes all traffic through the VPN
+  - `socks5h://127.0.0.1:1081` that routes per-domain based on the config (VPN for configured domains, direct for everything else)
 - A proxy pac will be hosted at `http://127.0.0.1:8091`
   
 ## Installation
@@ -89,7 +89,7 @@ launchctl kickstart -k gui/$(id -u)/sas.vpn-jumphost
 
 ```bash
 # curl
-curl --proxy socks5h://127.0.0.1:1081 https://internal.example.com
+curl --proxy socks5h://127.0.0.1:1080 https://internal.example.com
 
 # git
 git config --global http.proxy socks5h://127.0.0.1:1081
