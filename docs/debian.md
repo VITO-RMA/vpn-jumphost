@@ -136,7 +136,7 @@ After installing the package:
 The package installs a production-ready systemd **user** unit to `/usr/lib/systemd/user/vpn-jumphost.service`. It runs:
 
 ```
-ExecStart=/usr/bin/jumphost run --serve-pac
+ExecStart=/usr/bin/jumphost run
 ```
 
 No path customization is needed — the binary and its runtime dependencies (`openconnect`, `ocproxy`, and a Chromium-compatible browser) are all on the system `PATH` after package installation. If the installed browser is `google-chrome-stable` rather than `chromium`, set `chromium_path` in `config.toml` (or let `chromiumoxide` auto-detect it). The unit is `Type=simple` with `Restart=on-failure` and sends `SIGTERM` for clean shutdown.

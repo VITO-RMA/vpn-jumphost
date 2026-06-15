@@ -63,7 +63,7 @@ This installs the binary to `/usr/local/bin/jumphost`, a `Jumphost.app` notifica
 
 ## Running
 
-Copy [`docs/config.example.toml`](docs/config.example.toml) to `~/.config/vpn-jumphost/config.toml` and set `vpn_url` and the `[domains]` table for your VPN endpoint.
+Copy [`docs/config.example.toml`](docs/config.example.toml) to `~/.config/vpn-jumphost/config.toml` and set `vpn_url`, the `[domains]` table, and `serve_pac = true` if you want the PAC HTTP server.
 
 Before the first run, store your VPN credentials in the OS keyring:
 

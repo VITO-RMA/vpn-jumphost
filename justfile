@@ -42,7 +42,7 @@ pac-show:
 # override with -c or a user-local ~/.config/vpn-jumphost/config.toml.
 # Ctrl-C tears the tunnel down.
 start *ARGS: build
-    @{{ BIN }} -c docs/config.example.toml run --verbose --serve-pac {{ ARGS }}
+    @{{ BIN }} -c docs/config.example.toml run --verbose {{ ARGS }}
 
 # Start the VPN jumphost supervisor in the background via nohup.
 # Logs:  ~/.local/state/vpn-jumphost/jumphost.log
@@ -59,7 +59,7 @@ start-detached *ARGS: build
       exit 1
     fi
     : >"$log_file"
-    nohup {{ BIN }} -c docs/config.example.toml run --serve-pac {{ ARGS }} \
+    nohup {{ BIN }} -c docs/config.example.toml run {{ ARGS }} \
       >>"$log_file" 2>&1 &
     echo $! >"$pid_file"
     sleep 0.3

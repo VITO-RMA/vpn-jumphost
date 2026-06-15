@@ -6,7 +6,7 @@
 #   - validates the F5 MRHSession cookie and refreshes it via the browser
 #     login flow (`jumphost fetch-cookie`) when it expires,
 #   - starts openconnect with --script-tun --script "ocproxy ...",
-#   - serves the PAC file on 127.0.0.1:8091 (with `--serve-pac`),
+#   - serves the PAC file on 127.0.0.1:8091 when serve_pac = true in config.toml,
 #   - re-checks the cookie at the configured check_interval (default 300 s),
 #   - restarts openconnect if the cookie was refreshed,
 #   - detects laptop sleep/wake (logind PrepareForSleep signal on Linux,
@@ -60,7 +60,7 @@ Environment=PATH=/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin
 # Environment=VPN_PASSWORD=...  # prefer EnvironmentFile= with mode 600
 
 # Replace /CHANGE/ME with the absolute path to your checkout.
-ExecStart=/CHANGE/ME/vpn-jumphost/target/release/jumphost run --serve-pac
+ExecStart=/CHANGE/ME/vpn-jumphost/target/release/jumphost run
 
 # SIGTERM goes to the jumphost supervisor, which cleanly stops openconnect
 # (and ocproxy with it), the routing proxy, and the PAC server.

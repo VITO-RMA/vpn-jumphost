@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/jumphost run --serve-pac
+ExecStart=/usr/bin/jumphost run
 KillSignal=SIGTERM
 TimeoutStopSec=15
 Restart=on-failure

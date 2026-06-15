@@ -13,11 +13,11 @@ This document describes how the VPN jumphost fits together: the **F5 BIG-IP APM*
 | **ocproxy** | A userspace TCP/IP stack (lwIP) launched by openconnect. Terminates the VPN's IP packets in user space and serves SOCKS5 on `127.0.0.1:1080`. The routing proxy on port 1081 sits in front. |
 | **`src/config.rs`** | Shared configuration: constants, config-file lookups, and TOML config file integration (`src/config_file.rs`). **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy. All settings can be overridden via a TOML config file (`-c / --config FILE`, or `$XDG_CONFIG_HOME/vpn-jumphost/config.toml` by default; see [spec.md § Config File](../spec.md#config-file)). Precedence: CLI > config file > compiled-in default. |
 | **`src/routing.rs`** | In-process SOCKS5 router (tokio task) on `127.0.0.1:1081`. Per-domain routing: forwards VPN-domain traffic upstream to ocproxy on `127.0.0.1:1080`, connects everything else directly. Always started by the supervisor. Domain lists are resolved via [`src/config.rs`](../src/config.rs) (config file override → compiled-in defaults) — the single source of truth shared with PAC generation. |
-| **`src/pac.rs`** | In-process PAC generator **and** an embedded tokio/hyper HTTP server on `127.0.0.1:8091` when `--serve-pac` is set. No external static-file server. |
+| **`src/pac.rs`** | In-process PAC generator **and** an embedded tokio/hyper HTTP server on `127.0.0.1:8091` when `serve_pac = true` in the config file. No external static-file server. |
 | **`src/cookie.rs`** | Cookie validation (reqwest + rustls, redirects disabled) and Chromium-based capture (`chromiumoxide` over the Chrome DevTools Protocol, persistent user-data-dir). No Node.js, no Playwright driver. |
 | **`src/jumphost.rs`** | The supervisor monitor loop tying everything together: periodic re-validation, refresh-on-expiry, restart-on-refresh, sleep/wake handling. |
 | **`src/sleepwake/`** | Suspend/resume detection. Linux: `zbus` subscribes to `org.freedesktop.login1.Manager.PrepareForSleep`. macOS: `objc2`+`block2` observe `NSWorkspaceDidWakeNotification` on a dedicated `NSRunLoop` thread. Wall-clock skew fallback when neither is available. |
-| **devenv** | [devenv.sh](https://devenv.sh/) provides the toolchain (`just`, `openconnect`, `ocproxy`, `chromium`, Rust) **and** the process supervisor. `devenv up` now runs **one** process, `jumphost`, that execs `./target/release/jumphost -c docs/config.example.toml run --serve-pac`. |
+| **devenv** | [devenv.sh](https://devenv.sh/) provides the toolchain (`just`, `openconnect`, `ocproxy`, `chromium`, Rust) **and** the process supervisor. `devenv up` now runs **one** process, `jumphost`, that execs `./target/release/jumphost -c docs/config.example.toml run` (example config sets `serve_pac = true`). |
 | **PAC** | A Proxy Auto-Configuration script served on host loopback tells browsers **which** traffic goes to `SOCKS5 127.0.0.1:1081` and which stays **direct** (notably the VPN portal itself, per `[domains].direct`). Since the routing proxy is always on, browsers can also just point at `socks5h://127.0.0.1:1081` without a PAC file. |
 
 ## System context
@@ -33,7 +33,7 @@ flowchart LR
   end
 
   subgraph DV["devenv process: jumphost"]
-    JH["target/release/jumphost -c ... run\n--serve-pac"]
+    JH["target/release/jumphost -c ... run"]
     RP["routing proxy task\nsrc/routing.rs :1081"]
     PS["PAC HTTP task\nsrc/pac.rs :8091"]
     OC["openconnect --protocol=f5\n--script-tun --script 'ocproxy -D 1080 -k 60'"]
@@ -96,7 +96,7 @@ sequenceDiagram
 
 ## Service supervision
 
-`devenv up` starts **one** process-compose process, `jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run --serve-pac`. The binary itself:
+`devenv up` starts **one** process-compose process, `jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run`. The example config sets `serve_pac = true`. The binary itself:
 
 - Validates the cookie file synchronously at startup (reqwest GET of `<vpn_url>/vdesk/vpn/index.php3?outform=xml`, redirects disabled — 2xx = valid, 3xx/404 = invalid, network error = unknown).
 - If invalid or missing, launches Chromium via `chromiumoxide` for an interactive refresh, writes the refreshed cookie to `the cookie file` (mode 600), then proceeds.
@@ -108,7 +108,7 @@ There is no shell wrapper and no `exec` dance — the binary owns the openconnec
 
 ## Traffic paths on the host
 
-`just start` enables `--serve-pac` by default. The routing proxy always starts on port 1081 and ocproxy lives on port 1080 behind it. Clients always point at `127.0.0.1:1081`:
+`just start` uses the example config with `serve_pac = true`. The routing proxy always starts on port 1081 and ocproxy lives on port 1080 behind it. Clients always point at `127.0.0.1:1081`:
 
 - **Any SOCKS5 client** (browser, git, curl, SSH): point at `socks5h://127.0.0.1:1081`. The routing proxy checks the destination domain against the effective domain lists (from `config.toml` or compiled-in defaults in [`src/config.rs`](../src/config.rs)) and either forwards VPN-domain traffic to ocproxy (port 1080) or connects directly.
 - **Browser with PAC:** Browsers can use the PAC file at `http://127.0.0.1:8091/proxy.pac` for automatic proxy configuration. The PAC points at `SOCKS5 127.0.0.1:1081`.
