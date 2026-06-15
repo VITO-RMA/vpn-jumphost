@@ -22,13 +22,13 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 | **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
 | **`src/routing.rs`** | Routing SOCKS5 proxy (ported 1:1 from the previous standalone `routing-proxy/` crate). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
-| **`src/pac.rs`** | PAC file generation **and** built-in HTTP server (replaces the old `miniserve` dependency). Pure tokio/hyper, no external process. Generates the PAC text from the same `PROXY_DOMAINS` / `DIRECT_DOMAINS` constants and serves it on `127.0.0.1:8091` when `--serve-pac` is enabled. |
+| **`src/pac.rs`** | PAC file generation **and** built-in HTTP server (replaces the old `miniserve` dependency). Pure tokio/hyper, no external process. Generates the PAC text from the same `PROXY_DOMAINS` / `DIRECT_DOMAINS` constants and serves it on `127.0.0.1:8091` when `serve_pac = true` in the config file. |
 | **`src/cookie.rs`** | Cookie subsystem. Validation uses `reqwest` with rustls and **redirects disabled** to probe the F5 endpoint (3xx = expired cookie). Browser-based fetch uses Chromium via [`chromiumoxide`](https://crates.io/crates/chromiumoxide), which speaks the Chrome DevTools Protocol directly — **no Node.js driver is required** (the playwright dependency is gone). |
 | **`src/jumphost.rs`** | Main supervisor module. Validates/refreshes the cookie before spawning openconnect; spawns and supervises the routing proxy and PAC server tasks; runs the periodic cookie-check loop; ties together the sleep/wake watcher (waking the loop immediately on resume so the VPN can be reconnected). |
 | **`src/sleepwake/{mod,linux,macos}.rs`** | OS-native sleep/wake detection. Linux uses [`zbus`](https://crates.io/crates/zbus) to subscribe to the `org.freedesktop.login1.Manager.PrepareForSleep` signal. macOS uses [`objc2`](https://crates.io/crates/objc2) + [`block2`](https://crates.io/crates/block2) to subscribe to `NSWorkspaceDidWakeNotification`. Both platforms additionally have a portable wall-clock skew fallback in `jumphost.rs` that fires when a `time.time()`-equivalent jump larger than the threshold is observed (CLOCK_MONOTONIC stalls during Linux suspend, so a large wall-clock delta is a strong "we just woke up" signal). |
 | **`src/logging.rs`** | `tracing-subscriber` bootstrap. TTY-aware ANSI colors; honors `NO_COLOR`, `FORCE_COLOR`, and `RUST_LOG` (the latter overrides `--verbose`). systemd/journald (no TTY) automatically gets plain output. |
 | **`scripts/jumphost-wizard.sh`** | The only remaining shell script. Guided 4-step bootstrap that generates the PAC, captures the cookie via `jumphost fetch-cookie`, prints OS-appropriate autoproxy instructions, then `exec`s `devenv up`. |
-| **`devenv.nix`** | Declares nix-provided packages (`openconnect`, `ocproxy`, `chromium`, `just`, plus the Rust toolchain), `CHROMIUM_PATH` (Linux only), and a single process: `processes.jumphost.exec = "./target/release/jumphost -c docs/config.example.toml run --serve-pac"`. |
+| **`devenv.nix`** | Declares nix-provided packages (`openconnect`, `ocproxy`, `chromium`, `just`, plus the Rust toolchain), `CHROMIUM_PATH` (Linux only), and a single process: `processes.jumphost.exec = "./target/release/jumphost -c docs/config.example.toml run"`. |
 
 ### Layered View
 
@@ -46,7 +46,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 │                                                                      │
 │  ┌─ devenv up (process-compose) ────────────────────────────────┐    │
 │  │  processes.jumphost                                          │    │
-│  │     exec ./target/release/jumphost -c ... run --serve-pac   │    │
+│  │     exec ./target/release/jumphost -c ... run              │    │
 │  │       │                                                      │    │
 │  │       ├─ cookie monitor loop (tokio task)                    │    │
 │  │       │     • periodic validate every JUMPHOST_CHECK_INTERVAL│    │
@@ -87,7 +87,7 @@ ocproxy listens on port 1080 and the routing proxy (always started) listens on p
 
 **How it works:**
 - The user authenticates via a browser at the VPN portal and obtains an F5 `MRHSession` cookie (typically through the Chromium-based cookie fetch in `jumphost fetch-cookie`; see Feature 5). The cookie is written to `$VPN_COOKIE_FILE` (default `$XDG_STATE_HOME/vpn-jumphost/cookie`, mode 600).
-- `devenv up` launches `processes.jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run --serve-pac`. The binary's supervisor (`src/jumphost.rs`) validates `VPN_COOKIE_FILE`, auto-refreshes the cookie if needed (see Cookie Ingestion Flow), and spawns openconnect:
+- `devenv up` launches `processes.jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run`. The example config sets `serve_pac = true`. The binary's supervisor (`src/jumphost.rs`) validates `VPN_COOKIE_FILE`, auto-refreshes the cookie if needed (see Cookie Ingestion Flow), and spawns openconnect:
   ```
   openconnect --protocol=f5 --cookie-on-stdin \
               --script-tun \
@@ -175,7 +175,7 @@ export ALL_PROXY=socks5h://127.0.0.1:1081
 
 **How it works:**
 - Implemented in `src/pac.rs` using `tokio` + `hyper` — there is no `miniserve` dependency any more, and no external process.
-- Inside `jumphost run`, the PAC server is started as a tokio task when `--serve-pac` is given (the default `devenv` config passes it). It serves the generated PAC text at `/proxy.pac` (and `/`), with `Content-Type: application/x-ns-proxy-autoconfig`.
+- Inside `jumphost run`, the PAC server is started as a tokio task when `serve_pac = true` in the config file (the example config enables it). It serves the generated PAC text at `/proxy.pac` (and `/`), with `Content-Type: application/x-ns-proxy-autoconfig`.
 - The PAC content is regenerated from `config.rs` constants at startup; it does not need to be on disk.
 - If you want to use a file based pac config, run `just pac-gen` and point your browser at that file instead.
 
@@ -210,7 +210,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 
 **Steps:**
 1. **PAC on disk** — generates `proxy.pac` in the repo root if it does not exist (using `./target/release/jumphost generate-pac proxy.pac`); skips if present.
-2. **Serve PAC over HTTP** — informs the user that the PAC will be served by `devenv up` (the `jumphost` process with `--serve-pac`) on `http://127.0.0.1:8091/proxy.pac` once it is started in Step 4. There is no longer a standalone PAC server to start here.
+2. **Serve PAC over HTTP** — informs the user that the PAC will be served by `devenv up` (the `jumphost` process with `serve_pac = true` in config) on `http://127.0.0.1:8091/proxy.pac` once it is started in Step 4. There is no longer a standalone PAC server to start here.
 3. **Desktop proxy instructions** — prints OS-specific instructions based on `uname -s` (`Darwin` → `networksetup` + System Settings; otherwise GNOME `gsettings` / KDE / Firefox) for setting the automatic proxy configuration URL. Waits for the user to press Enter. Implemented in `print_autoproxy_instructions()`.
 4. **VPN authentication and jumphost** — runs `./target/release/jumphost fetch-cookie -o "$VPN_COOKIE_FILE"` to capture the cookie via Chromium. The cookie is written to `$XDG_STATE_HOME/vpn-jumphost/cookie` with mode 600 and `VPN_COOKIE_FILE` is exported.
 
@@ -233,7 +233,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just validate-cookie` | `./target/release/jumphost validate-cookie` — probes the VPN endpoint with the current cookie. Exit 0 = valid, 1 = invalid, 2 = network error. |
 | `just pac-gen` | `./target/release/jumphost generate-pac proxy.pac` |
 | `just pac-show` | Prints the generated PAC text to stdout |
-| `just start` | Runs `./target/release/jumphost -c docs/config.example.toml run --serve-pac` in the foreground (Ctrl-C to stop). Starts openconnect + ocproxy, the routing proxy on `127.0.0.1:1081`, and the loopback PAC server. Uses the example config for VPN URL + domain lists; override with a user-local `config.toml` or env vars. |
+| `just start` | Runs `./target/release/jumphost -c docs/config.example.toml run` in the foreground (Ctrl-C to stop). Starts openconnect + ocproxy, the routing proxy on `127.0.0.1:1081`, and the loopback PAC server (example config sets `serve_pac = true`). Uses the example config for VPN URL + domain lists; override with a user-local `config.toml` or env vars. |
 | `just start-detached` | Wraps the same `jumphost run` command with `nohup`, redirecting stdout/stderr to `~/.local/state/vpn-jumphost/jumphost.log` and writing the PID to `jumphost.pid`. The binary itself no longer daemonizes (the old `-d/--daemonize` flag is gone); the recipe handles backgrounding. |
 | `just stop` | Reads PID from `~/.local/state/vpn-jumphost/jumphost.pid` and sends SIGTERM, tearing down the tunnel, routing proxy, and PAC server. |
 | `just current-version` | Prints the latest semver release tag from git |
@@ -301,7 +301,7 @@ User runs `just bootstrap` from inside `devenv shell`
                  └─ exec devenv up
                       │
                       └─ process-compose: `jumphost` process
-                           └─ ./target/release/jumphost -c docs/config.example.toml run --serve-pac
+                           └─ ./target/release/jumphost -c docs/config.example.toml run
                                 ├─ validate cookie (auto-refresh if invalid)
                                 ├─ spawn openconnect --protocol=f5 --cookie-on-stdin
                                 │         --script-tun
@@ -335,7 +335,7 @@ There is no `VPN_COOKIE` env-var fallback and no interactive stdin fallback (pro
 
 ### Process Lifecycle
 
-1. `devenv up` launches process-compose, which starts the single declared process `jumphost` (`exec = "./target/release/jumphost -c docs/config.example.toml run --serve-pac"`).
+1. `devenv up` launches process-compose, which starts the single declared process `jumphost` (`exec = "./target/release/jumphost -c docs/config.example.toml run"`).
 2. The supervisor in `src/jumphost.rs` validates the existing cookie and auto-refreshes it via the Chromium flow if it is expired or missing. After the cookie is confirmed valid, it spawns `openconnect` (which spawns `ocproxy`), the routing proxy tokio task, and the PAC HTTP server tokio task.
 3. ocproxy serves SOCKS5 on `127.0.0.1:${SOCKS_PORT}` (default 1080). The routing proxy (always started) listens on `127.0.0.1:1081`.
 4. The PAC HTTP server runs on `127.0.0.1:${PAC_SERVE_PORT}` (default 8091) in the same process — no external `miniserve`.
@@ -351,7 +351,7 @@ A single-process supervisor for environments where `process-compose` isn't desir
 2. Validates the cookie via the in-process validator. Refreshes via the Chromium cookie-fetch flow on "invalid" results; on network errors keeps the existing cookie.
 3. Starts `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file connected to stdin. openconnect spawns ocproxy (SOCKS5 on `127.0.0.1:${socks_port}`) as its `--script-tun` peer. The supervisor tracks openconnect's PID and tears it down on SIGTERM/SIGINT/SIGHUP.
 4. Starts the routing proxy task on `127.0.0.1:1081` (configurable via `routing_proxy.port` in config.toml). ocproxy listens on port 1080 (configurable via `socks_port` in config.toml).
-5. If `--serve-pac` is given, also starts the in-process PAC HTTP server on the configured `pac_server.port` (default 8091).
+5. If `serve_pac = true` in the config file, also starts the in-process PAC HTTP server on the configured `pac_server.port` (default 8091).
 6. A monitor task polls every `min(15s, check_interval/4)`:
    - It is woken **immediately** by an OS-native sleep/wake watcher when available:
      - **Linux** (`src/sleepwake/linux.rs`): uses [`zbus`](https://crates.io/crates/zbus) to subscribe to `org.freedesktop.login1.Manager.PrepareForSleep` on the system bus. The signal arrives with `false` on resume; the watcher calls `on_resume`.
@@ -392,6 +392,7 @@ socks_port = 1080
 ocproxy_keepalive = 60
 check_interval = 300
 no_headless = false
+serve_pac = true
 chromium_path = "/usr/bin/chromium"
 verbose = false
 
@@ -422,6 +423,7 @@ password_file = "/run/secrets/vpn_pass"
 | `ocproxy_keepalive` | integer | TCP keepalive (seconds) for ocproxy `-k` |
 | `check_interval` | float | Supervisor cookie-check interval (seconds) |
 | `no_headless` | boolean | Disable headless cookie refresh |
+| `serve_pac` | boolean | Start the in-process PAC HTTP server (default: false) |
 | `chromium_path` | path | Path to Chromium executable |
 | `verbose` | boolean | Enable debug-level (verbose) logging (same as `--verbose`) |
 | `routing_proxy.bind` | string | Routing proxy bind address |
@@ -450,7 +452,7 @@ Most configuration is done via the config file or CLI flags. Only two environmen
 
 Standard system variables (`XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `RUST_LOG`, `NO_COLOR`, `FORCE_COLOR`, `PATH`) are honored as usual but are not application-specific configuration.
 
-CLI overview: `-c/--config FILE`, `--serve-pac`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
+CLI overview: `-c/--config FILE`, `--no-headless`, `-v/--verbose`. The `-c` and `-v` flags are global (accepted before or after any subcommand). PAC serving is controlled by `serve_pac` in the config file. The previous `-d/--daemonize` flag is **gone** — use `just start-detached` (nohup) or a systemd unit instead.
 
 `fetch-cookie` CLI: `--headless`.
 

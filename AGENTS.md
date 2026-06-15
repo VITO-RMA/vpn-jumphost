@@ -37,7 +37,7 @@ The whole runtime is two binaries (openconnect + ocproxy) plus the Rust supervis
 - **CLI** — `src/main.rs`. Subcommands: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`. Global flags: `-c / --config FILE` (explicit config file path, overrides XDG default) and `-v / --verbose`.
 
 Process supervision:
-- **`devenv up`** runs a single `processes.jumphost` process defined in `devenv.nix` whose `exec` is `./target/release/jumphost run --serve-pac`. There is no longer a separate `vpn` process and a separate `pac` process.
+- **`devenv up`** runs a single `processes.jumphost` process defined in `devenv.nix` whose `exec` is `./target/release/jumphost run`. PAC serving is enabled via `serve_pac = true` in the config file. There is no longer a separate `vpn` process and a separate `pac` process.
 - **`just start`** runs the same command in the foreground without process-compose.
 - **`just start-detached`** wraps the same command in `nohup` and writes PID/log files to `$XDG_STATE_HOME/vpn-jumphost/jumphost.{pid,log}`. The binary itself no longer daemonizes — there is no `-d/--daemonize` flag.
 - A systemd user unit at [`contrib/vpn-jumphost.service.example`](contrib/vpn-jumphost.service.example) wires the binary as `Type=simple` with SIGTERM for clean shutdown.

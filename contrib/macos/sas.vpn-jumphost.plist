@@ -17,11 +17,12 @@
   <key>Label</key>
   <string>sas.vpn-jumphost</string>
 
+  <!-- PAC HTTP server: enable with serve_pac = true in
+       ~/.config/vpn-jumphost/config.toml (not a CLI flag). -->
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/jumphost</string>
     <string>run</string>
-    <string>--serve-pac</string>
   </array>
 
   <!-- Start automatically at login. -->

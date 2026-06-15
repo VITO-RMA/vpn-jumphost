@@ -40,6 +40,9 @@ vpn_url = "https://byod.vito.be"
 # Same as passing --verbose on the command line.
 # verbose = false
 
+# Serve the PAC file over HTTP on pac_server.bind:port (default: false).
+serve_pac = true
+
 # -- Paths (usually fine as defaults) ----------------------------------
 
 # Path to a Chromium executable.

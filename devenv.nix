@@ -39,7 +39,7 @@
   # Use the example config shipped in docs/ so VPN URL + domain lists are
   # set without requiring a user-local config file.  Users who have their
   # own ~/.config/vpn-jumphost/config.toml can drop the -c flag.
-  processes.jumphost.exec = "./target/release/jumphost -c docs/config.example.toml run --serve-pac";
+  processes.jumphost.exec = "./target/release/jumphost -c docs/config.example.toml run";
 
   scripts.intro.exec = ''
     echo "❄️ VPN jumphost devenv shell"

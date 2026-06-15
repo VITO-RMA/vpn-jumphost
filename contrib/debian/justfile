@@ -95,7 +95,7 @@ test-install: build-package
             /usr/bin/jumphost --help >/tmp/jumphost-help.txt; \
             grep -q "^Usage:" /tmp/jumphost-help.txt; \
             test -f /usr/lib/systemd/user/{{ service_name }}; \
-            grep -q "^ExecStart=/usr/bin/jumphost run --serve-pac$" /usr/lib/systemd/user/{{ service_name }}; \
+            grep -q "^ExecStart=/usr/bin/jumphost run$" /usr/lib/systemd/user/{{ service_name }}; \
             test -f /usr/share/vpn-jumphost/config.example.toml; \
             test -f /usr/share/bash-completion/completions/jumphost; \
             test -f /usr/share/zsh/vendor-completions/_jumphost; \
