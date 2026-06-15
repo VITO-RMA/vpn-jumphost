@@ -17,8 +17,6 @@ makepkg -si
 
 `makepkg -si` builds the binary with `cargo build --release --locked` and installs the resulting package via `pacman`. Shell completions for bash, zsh, and fish are generated at package time by running `jumphost generate-completions <shell>` and installed to the standard Arch completion directories.
 
-The packaged build disables Arch `makepkg` LTO (`options=(!lto)`) because crates that bundle native C/asm code, such as `ring` or `aws-lc-sys`, can hit linker failures under Arch's default package-level LTO even when a normal `cargo build --release` succeeds.
-
 ## Post-install setup
 
 After installing the package:
@@ -32,6 +30,11 @@ After installing the package:
    ```
 
    At minimum, set `vpn_url` and the `[domains]` table for your VPN endpoint.
+
+   **Authentitace:**
+  ```bash
+   jumphost authenticate
+   ```
 
 2. **Enable and start the systemd user service:**
 
