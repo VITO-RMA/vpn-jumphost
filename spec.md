@@ -18,7 +18,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 
 | Component | Role |
 |---|---|
-| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
+| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`, `doctor`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
 | **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
 | **`src/routing.rs`** | Routing SOCKS5 proxy (ported 1:1 from the previous standalone `routing-proxy/` crate). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
@@ -231,6 +231,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just bootstrap [-d]` | Runs `scripts/jumphost-wizard.sh`; pass `-d` to start the devenv processes detached |
 | `just fetch-cookie` | `./target/release/jumphost fetch-cookie` — fetches the MRHSession cookie via Chromium and writes it to `$VPN_COOKIE_FILE` |
 | `just validate-cookie` | `./target/release/jumphost validate-cookie` — probes the VPN endpoint with the current cookie. Exit 0 = valid, 1 = invalid, 2 = network error. |
+| `just doctor` | `./target/release/jumphost doctor` — health checks for config, cookie, routing proxy, VPN tunnel, PAC server (if enabled), and proxychains setup. Exit 0 when all critical checks pass. |
 | `just pac-gen` | `./target/release/jumphost generate-pac proxy.pac` |
 | `just pac-show` | Prints the generated PAC text to stdout |
 | `just start` | Runs `./target/release/jumphost -c docs/config.example.toml run` in the foreground (Ctrl-C to stop). Starts openconnect + ocproxy, the routing proxy on `127.0.0.1:1081`, and the loopback PAC server (example config sets `serve_pac = true`). Uses the example config for VPN URL + domain lists; override with a user-local `config.toml` or env vars. |
@@ -296,7 +297,24 @@ jumphost authenticate --delete
 - Create connections with the real database hostname and port; leave SSH tunneling disabled in the client.
 - Scales to many databases: one wrapper setup, unlimited connections by hostname.
 
-**Usage:** See [docs/databases.md](docs/databases.md). Helpers: `just proxychains-setup`, `just pc`, `just dbeaver`, `just test-db`, [`scripts/proxychains-wrap.sh`](scripts/proxychains-wrap.sh), [`docs/proxychains.conf.example`](docs/proxychains.conf.example).
+**Usage:** See [docs/databases.md](docs/databases.md). Helpers: `just proxychains-setup`, `just doctor`, `just pc`, `just dbeaver`, `just test-db`, [`scripts/proxychains-wrap.sh`](scripts/proxychains-wrap.sh), [`docs/proxychains.conf.example`](docs/proxychains.conf.example).
+
+### 11. Setup health check (`jumphost doctor`)
+
+**What it does:** Prints a one-screen diagnostic of common setup problems before debugging SOCKS or database clients.
+
+**Checks (implemented in `src/doctor.rs`):**
+- Config file exists; `vpn_url` and `[domains].proxy` are set.
+- VPN credentials present (warn if missing).
+- Cookie file exists and validates against the VPN endpoint (fail if invalid; warn if missing or network error).
+- Routing proxy listening on configured `routing_proxy` bind/port (fail if down).
+- ocproxy SOCKS port listening (warn if down — tunnel still starting or not connected).
+- PAC HTTP server when `serve_pac = true` (warn if down).
+- `proxychains` binary on `PATH` and config file with `proxy_dns` + `socks5 127.0.0.1:<routing_proxy.port>` (warn if missing — optional for database clients).
+
+**Exit codes:** 0 = all critical checks passed; 1 = one or more critical checks failed.
+
+**Usage:** `jumphost doctor` or `just doctor`.
 
 ---
 

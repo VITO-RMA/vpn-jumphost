@@ -32,6 +32,7 @@ sequenceDiagram
 ```bash
 brew install proxychains-ng          # macOS; Debian/Ubuntu: apt install proxychains4
 just proxychains-setup               # writes ~/.proxychains/proxychains.conf
+just doctor                          # health check: config, cookie, :1081, proxychains
 just test-db                         # TCP check to climkit.marvin.vito.local:5432
 just dbeaver                         # launch DBeaver through the routing proxy
 just pc -- psql -h climkit.marvin.vito.local -U me -d mydb
@@ -79,6 +80,8 @@ socks5 127.0.0.1 1081
 ```
 
 `proxy_dns` is required. Without it, your OS resolves internal names like `*.vito.local` locally and the connection fails before traffic reaches the jumphost.
+
+Run `jumphost doctor` (or `just doctor`) to verify config, cookie, listeners, and proxychains setup in one pass.
 
 ### psql (CLI)
 

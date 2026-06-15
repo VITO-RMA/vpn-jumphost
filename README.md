@@ -87,6 +87,14 @@ systemctl --user enable --now vpn-jumphost.service
 launchctl kickstart -k gui/$(id -u)/sas.vpn-jumphost
 ```
 
+Verify the setup:
+
+```bash
+jumphost doctor
+```
+
+Checks config, cookie, routing proxy (`:1081`), VPN tunnel (`:1080`), PAC server, and proxychains (for database clients). Exit 0 means all critical checks passed.
+
 ## Point your tools at the proxy:
 
 ```bash
