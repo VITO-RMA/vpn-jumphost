@@ -90,14 +90,14 @@ launchctl kickstart -k gui/$(id -u)/sas.vpn-jumphost
 ## Point your tools at the proxy:
 
 ```bash
-# curl
-curl --proxy socks5h://127.0.0.1:1080 https://internal.example.com
+# curl (routing proxy — use for all apps; per-domain VPN routing)
+curl --proxy socks5h://127.0.0.1:1081 https://internal.example.com
 
 # git
 git config --global http.proxy socks5h://127.0.0.1:1081
 
 # SSH (see docs/ssh.md for persistent config)
-ssh -o 'ProxyCommand=nc -x 127.0.0.1:1080 -X 5 %h %p' user@host
+ssh -o 'ProxyCommand=nc -x 127.0.0.1:1081 -X 5 %h %p' user@host
 ```
 
 Configure your browser to use the proxy pac at `http://127.0.0.1:8091` for automatic per-domain proxying.
