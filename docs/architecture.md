@@ -12,13 +12,13 @@ This document describes how the VPN jumphost fits together: the **F5 BIG-IP APM*
 | **`src/vpn.rs`** | Spawns and supervises `openconnect` via `tokio::process::Command`, with `--script-tun --script "ocproxy …"`. openconnect does **not** open `/dev/net/tun`; it spawns ocproxy as its tunnel peer and exchanges raw IP packets over a socketpair. |
 | **ocproxy** | A userspace TCP/IP stack (lwIP) launched by openconnect. Terminates the VPN's IP packets in user space and serves SOCKS5 on `127.0.0.1:1080`. The routing proxy on port 1081 sits in front. |
 | **`src/config.rs`** | Shared configuration: constants, config-file lookups, and TOML config file integration (`src/config_file.rs`). **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy. All settings can be overridden via a TOML config file (`-c / --config FILE`, or `$XDG_CONFIG_HOME/vpn-jumphost/config.toml` by default; see [spec.md § Config File](../spec.md#config-file)). Precedence: CLI > config file > compiled-in default. |
-| **`src/routing.rs`** | In-process SOCKS5 router (tokio task) on `127.0.0.1:1081`. Per-domain routing: forwards VPN-domain traffic upstream to ocproxy on `127.0.0.1:1080`, connects everything else directly. Always started by the supervisor. Domain lists are resolved via [`src/config.rs`](../src/config.rs) (config file override → compiled-in defaults) — the single source of truth shared with PAC generation. |
+| **`src/routing.rs`** | In-process routing proxy (tokio task) on `127.0.0.1:1081`. Accepts both SOCKS5 and HTTP CONNECT (auto-detected per connection). Per-domain routing: forwards VPN-domain traffic upstream to ocproxy on `127.0.0.1:1080`, connects everything else directly. Always started by the supervisor. Domain lists are resolved via [`src/config.rs`](../src/config.rs) (config file override → compiled-in defaults) — the single source of truth shared with PAC generation. |
 | **`src/pac.rs`** | In-process PAC generator **and** an embedded tokio/hyper HTTP server on `127.0.0.1:8091` when `serve_pac = true` in the config file. No external static-file server. |
 | **`src/cookie.rs`** | Cookie validation (reqwest + rustls, redirects disabled) and Chromium-based capture (`chromiumoxide` over the Chrome DevTools Protocol, persistent user-data-dir). No Node.js, no Playwright driver. |
 | **`src/jumphost.rs`** | The supervisor monitor loop tying everything together: periodic re-validation, refresh-on-expiry, restart-on-refresh, sleep/wake handling. |
 | **`src/sleepwake/`** | Suspend/resume detection. Linux: `zbus` subscribes to `org.freedesktop.login1.Manager.PrepareForSleep`. macOS: `objc2`+`block2` observe `NSWorkspaceDidWakeNotification` on a dedicated `NSRunLoop` thread. Wall-clock skew fallback when neither is available. |
 | **devenv** | [devenv.sh](https://devenv.sh/) provides the toolchain (`just`, `openconnect`, `ocproxy`, `chromium`, Rust) **and** the process supervisor. `devenv up` now runs **one** process, `jumphost`, that execs `./target/release/jumphost -c docs/config.example.toml run` (example config sets `serve_pac = true`). |
-| **PAC** | A Proxy Auto-Configuration script served on host loopback tells browsers **which** traffic goes to `SOCKS5 127.0.0.1:1081` and which stays **direct** (notably the VPN portal itself, per `[domains].direct`). Since the routing proxy is always on, browsers can also just point at `socks5h://127.0.0.1:1081` without a PAC file. |
+| **PAC** | A Proxy Auto-Configuration script served on host loopback tells browsers **which** traffic goes to `SOCKS5 127.0.0.1:1081` and which stays **direct** (notably the VPN portal itself, per `[domains].direct`). Since the routing proxy is always on, browsers and tools can also use `socks5h://127.0.0.1:1081` or `http://127.0.0.1:1081` (HTTP CONNECT) without a PAC file. |
 
 ## System context
 
@@ -27,7 +27,7 @@ flowchart LR
   subgraph Host["Host (Linux / macOS)"]
     Browser["Browser / CLI / SSH"]
     PAC["PAC URL\n127.0.0.1:8091"]
-    LP["127.0.0.1:1081\nrouting SOCKS5"]
+    LP["127.0.0.1:1081\nrouting proxy\nSOCKS5 + HTTP CONNECT"]
     Browser --> PAC
     Browser --> LP
   end
@@ -58,7 +58,7 @@ flowchart LR
   end
 ```
 
-The VPN tunnel is terminated inside `ocproxy`'s userspace TCP/IP stack — there is no kernel route into the VPN network at all. The routing proxy on `127.0.0.1:1081` is the universal client target: per-domain it either forwards to ocproxy on `127.0.0.1:1080` (VPN-routed) or connects directly. Applications point at `socks5h://127.0.0.1:1081`; everything else on the host is unaffected.
+The VPN tunnel is terminated inside `ocproxy`'s userspace TCP/IP stack — there is no kernel route into the VPN network at all. The routing proxy on `127.0.0.1:1081` is the universal client target: per-domain it either forwards to ocproxy on `127.0.0.1:1080` (VPN-routed) or connects directly. Applications point at `socks5h://127.0.0.1:1081` (SOCKS5) or `http://127.0.0.1:1081` (HTTP CONNECT); everything else on the host is unaffected.
 
 ## BYOD, F5 cookie, and OpenConnect
 
@@ -111,6 +111,7 @@ There is no shell wrapper and no `exec` dance — the binary owns the openconnec
 `just start` uses the example config with `serve_pac = true`. The routing proxy always starts on port 1081 and ocproxy lives on port 1080 behind it. Clients always point at `127.0.0.1:1081`:
 
 - **Any SOCKS5 client** (browser, git, curl, SSH): point at `socks5h://127.0.0.1:1081`. The routing proxy checks the destination domain against the effective domain lists (from `config.toml` or compiled-in defaults in [`src/config.rs`](../src/config.rs)) and either forwards VPN-domain traffic to ocproxy (port 1080) or connects directly.
+- **HTTP CONNECT clients** (desktop apps, Zed, VS Code, Electron apps): set `http_proxy=http://127.0.0.1:1081` and `https_proxy=http://127.0.0.1:1081`. The routing proxy auto-detects HTTP CONNECT requests and applies the same per-domain routing rules.
 - **Browser with PAC:** Browsers use the PAC file at `http://127.0.0.1:8091/proxy.pac` for automatic proxy configuration. The PAC points at `SOCKS5 127.0.0.1:1080` (ocproxy) because the PAC script already applies per-domain rules. Non-browser tools use the routing proxy on 1081 instead.
 - **CLI tools:** Use `--proxy socks5h://127.0.0.1:1081` or set `ALL_PROXY=socks5h://127.0.0.1:1081`. VPN-vs-direct routing is handled transparently by the routing proxy.
 - **SSH:** Uses **`ProxyCommand`** with `nc -X 5 -x 127.0.0.1:1081` — see [`ssh.md`](ssh.md). Domains listed in `[domains].proxy` are routed through the VPN automatically.

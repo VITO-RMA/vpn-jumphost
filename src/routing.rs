@@ -1,7 +1,10 @@
-//! Routing SOCKS5 proxy: per-domain VPN routing.
+//! Routing proxy: per-domain VPN routing (SOCKS5 + HTTP CONNECT).
 //!
-//! Listens on `127.0.0.1:1081` (configurable) and routes SOCKS5 CONNECT
-//! requests:
+//! Listens on `127.0.0.1:1081` (configurable) and accepts both SOCKS5 and
+//! HTTP CONNECT requests (auto-detected by peeking the first byte: `0x05`
+//! → SOCKS5, ASCII letter → HTTP CONNECT).
+//!
+//! Routing rules (identical for both protocols):
 //!
 //! - VPN domains (matching [`crate::config::proxy_domains`]) → upstream
 //!   ocproxy SOCKS5 on port 1080, using ATYP 0x03 (domain name) so ocproxy
@@ -45,7 +48,7 @@ const REP_ATYP_NOT_SUPPORTED: u8 = 0x08;
 
 // ── Destination target ──────────────────────────────────────────────────
 
-/// Parsed destination from a SOCKS5 CONNECT request.
+/// Parsed destination from a SOCKS5 or HTTP CONNECT request.
 enum Target {
     Ipv4(Ipv4Addr, u16),
     Ipv6(Ipv6Addr, u16),
@@ -329,6 +332,134 @@ async fn connect_upstream(target: &Target, upstream_port: u16) -> io::Result<(Tc
     Ok((upstream, reply))
 }
 
+// ── HTTP CONNECT handling ──────────────────────────────────────────────
+
+/// Maximum size of an HTTP CONNECT request (request line + headers).
+const HTTP_MAX_HEAD_SIZE: usize = 8192;
+
+const HTTP_200_ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection Established\r\n\r\n";
+
+/// Parse the `CONNECT host:port HTTP/1.x` request from the raw header bytes.
+/// Returns a `Target` on success.
+fn parse_connect_target(head: &[u8]) -> io::Result<Target> {
+    let head_str = std::str::from_utf8(head)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "HTTP CONNECT request is not valid UTF-8"))?;
+
+    // First line: "CONNECT host:port HTTP/1.x\r\n"
+    let request_line = head_str
+        .lines()
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "empty HTTP request"))?;
+
+    let mut parts = request_line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing HTTP method"))?;
+    if !method.eq_ignore_ascii_case("CONNECT") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected CONNECT method, got {method}"),
+        ));
+    }
+
+    let authority = parts
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing authority in CONNECT request"))?;
+
+    // Parse authority as host:port.  Handles:
+    //   hostname:port
+    //   1.2.3.4:port
+    //   [::1]:port
+    if let Some(bracketed) = authority.strip_prefix('[') {
+        // IPv6: [addr]:port
+        let (addr_str, rest) = bracketed
+            .split_once(']')
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "unterminated IPv6 bracket"))?;
+        let port_str = rest
+            .strip_prefix(':')
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing port after IPv6 address"))?;
+        let ip: Ipv6Addr = addr_str
+            .parse()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("invalid IPv6 address: {e}")))?;
+        let port: u16 = port_str
+            .parse()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("invalid port: {e}")))?;
+        Ok(Target::Ipv6(ip, port))
+    } else if let Some((host, port_str)) = authority.rsplit_once(':') {
+        let port: u16 = port_str
+            .parse()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("invalid port: {e}")))?;
+        // Try IPv4 first, fall back to domain.
+        if let Ok(ip) = host.parse::<Ipv4Addr>() {
+            Ok(Target::Ipv4(ip, port))
+        } else {
+            Ok(Target::Domain(host.to_string(), port))
+        }
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("missing port in CONNECT authority: {authority}"),
+        ))
+    }
+}
+
+/// Read and handle an HTTP CONNECT request.
+async fn handle_http_connect(client: &mut TcpStream, peer: SocketAddr, upstream_port: u16) -> io::Result<()> {
+    // Read until \r\n\r\n (end of HTTP headers).
+    let mut buf = Vec::with_capacity(512);
+    loop {
+        let byte = client.read_u8().await?;
+        buf.push(byte);
+        if buf.len() >= 4 && buf[buf.len() - 4..] == *b"\r\n\r\n" {
+            break;
+        }
+        if buf.len() >= HTTP_MAX_HEAD_SIZE {
+            let _ = client.write_all(b"HTTP/1.1 431 Request Header Fields Too Large\r\n\r\n").await;
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "HTTP CONNECT head too large"));
+        }
+    }
+
+    let target = match parse_connect_target(&buf) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = client
+                .write_all(format!("HTTP/1.1 400 Bad Request\r\n\r\n{e}\r\n").as_bytes())
+                .await;
+            return Err(e);
+        }
+    };
+
+    let route = route_for(&target);
+    info!(peer = %peer, target = %target, route = ?route, "HTTP CONNECT");
+
+    match route {
+        Route::Direct => match connect_direct(&target).await {
+            Ok(outbound) => {
+                client.write_all(HTTP_200_ESTABLISHED).await?;
+                relay(client, outbound).await;
+                Ok(())
+            }
+            Err(e) => {
+                warn!(peer = %peer, target = %target, error = %e, "direct connect failed");
+                let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
+                Err(e)
+            }
+        },
+        Route::Upstream => match connect_upstream(&target, upstream_port).await {
+            Ok((outbound, _socks5_reply)) => {
+                client.write_all(HTTP_200_ESTABLISHED).await?;
+                relay(client, outbound).await;
+                Ok(())
+            }
+            Err(e) => {
+                warn!(peer = %peer, target = %target, error = %e, "upstream connect failed");
+                let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
+                Err(e)
+            }
+        },
+    }
+}
+
 // ── Per-connection handler ──────────────────────────────────────────────
 
 async fn handle_client(mut client: TcpStream, peer: SocketAddr, upstream_port: u16) {
@@ -338,37 +469,54 @@ async fn handle_client(mut client: TcpStream, peer: SocketAddr, upstream_port: u
 }
 
 async fn handle_client_inner(client: &mut TcpStream, peer: SocketAddr, upstream_port: u16) -> io::Result<()> {
-    client_greeting(client).await?;
-    let target = client_request(client).await?;
-    let route = route_for(&target);
-    info!(peer = %peer, target = %target, route = ?route, "CONNECT");
+    // Peek the first byte to auto-detect the protocol:
+    //   0x05 → SOCKS5 (RFC 1928)
+    //   ASCII letter → HTTP CONNECT
+    let mut peek_buf = [0u8; 1];
+    client.peek(&mut peek_buf).await?;
 
-    match route {
-        Route::Direct => match connect_direct(&target).await {
-            Ok(outbound) => {
-                let bind_addr = outbound.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
-                client.write_all(&socks5_reply_with_bind(REP_SUCCESS, bind_addr)).await?;
-                relay(client, outbound).await;
-                Ok(())
-            }
-            Err(e) => {
-                let rep = rep_for_io_error(&e);
-                warn!(peer = %peer, target = %target, error = %e, "direct connect failed");
-                Err(send_error(client, rep, &e.to_string()).await)
-            }
-        },
-        Route::Upstream => match connect_upstream(&target, upstream_port).await {
-            Ok((outbound, reply)) => {
-                client.write_all(&reply).await?;
-                relay(client, outbound).await;
-                Ok(())
-            }
-            Err(e) => {
-                let rep = rep_for_io_error(&e);
-                warn!(peer = %peer, target = %target, error = %e, "upstream connect failed");
-                Err(send_error(client, rep, &e.to_string()).await)
-            }
-        },
+    if peek_buf[0] == SOCKS_VERSION {
+        // SOCKS5 path.
+        client_greeting(client).await?;
+        let target = client_request(client).await?;
+        let route = route_for(&target);
+        info!(peer = %peer, target = %target, route = ?route, "SOCKS5 CONNECT");
+
+        match route {
+            Route::Direct => match connect_direct(&target).await {
+                Ok(outbound) => {
+                    let bind_addr = outbound.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
+                    client.write_all(&socks5_reply_with_bind(REP_SUCCESS, bind_addr)).await?;
+                    relay(client, outbound).await;
+                    Ok(())
+                }
+                Err(e) => {
+                    let rep = rep_for_io_error(&e);
+                    warn!(peer = %peer, target = %target, error = %e, "direct connect failed");
+                    Err(send_error(client, rep, &e.to_string()).await)
+                }
+            },
+            Route::Upstream => match connect_upstream(&target, upstream_port).await {
+                Ok((outbound, reply)) => {
+                    client.write_all(&reply).await?;
+                    relay(client, outbound).await;
+                    Ok(())
+                }
+                Err(e) => {
+                    let rep = rep_for_io_error(&e);
+                    warn!(peer = %peer, target = %target, error = %e, "upstream connect failed");
+                    Err(send_error(client, rep, &e.to_string()).await)
+                }
+            },
+        }
+    } else if peek_buf[0].is_ascii_alphabetic() {
+        // HTTP CONNECT path.
+        handle_http_connect(client, peer, upstream_port).await
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported protocol (first byte: {:#04x})", peek_buf[0]),
+        ))
     }
 }
 
@@ -387,7 +535,7 @@ async fn relay(client: &mut TcpStream, mut target: TcpStream) {
 
 // ── Public API ──────────────────────────────────────────────────────────
 
-/// Run the routing SOCKS5 proxy until `shutdown` is cancelled.
+/// Run the routing proxy (SOCKS5 + HTTP CONNECT) until `shutdown` is cancelled.
 ///
 /// `bind` and `port` control the listener; `upstream_port` is the loopback
 /// ocproxy SOCKS5 port that VPN-bound traffic is forwarded to.
@@ -506,5 +654,41 @@ mod tests {
 
         let t = Target::Ipv6(Ipv6Addr::LOCALHOST, 80);
         assert_eq!(t.to_string(), "[::1]:80");
+    }
+
+    // ── HTTP CONNECT parsing tests ─────────────────────────────────────
+
+    #[test]
+    fn test_parse_connect_domain() {
+        let head = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
+        let target = parse_connect_target(head).unwrap();
+        assert!(matches!(target, Target::Domain(ref h, 443) if h == "example.com"));
+        assert_eq!(target.to_string(), "example.com:443");
+    }
+
+    #[test]
+    fn test_parse_connect_ipv4() {
+        let head = b"CONNECT 10.0.0.1:8080 HTTP/1.1\r\n\r\n";
+        let target = parse_connect_target(head).unwrap();
+        assert!(matches!(target, Target::Ipv4(ip, 8080) if ip == Ipv4Addr::new(10, 0, 0, 1)));
+    }
+
+    #[test]
+    fn test_parse_connect_ipv6() {
+        let head = b"CONNECT [::1]:80 HTTP/1.1\r\n\r\n";
+        let target = parse_connect_target(head).unwrap();
+        assert!(matches!(target, Target::Ipv6(ip, 80) if ip == Ipv6Addr::LOCALHOST));
+    }
+
+    #[test]
+    fn test_parse_connect_missing_port() {
+        let head = b"CONNECT example.com HTTP/1.1\r\n\r\n";
+        assert!(parse_connect_target(head).is_err());
+    }
+
+    #[test]
+    fn test_parse_connect_wrong_method() {
+        let head = b"GET / HTTP/1.1\r\n\r\n";
+        assert!(parse_connect_target(head).is_err());
     }
 }

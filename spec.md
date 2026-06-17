@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The VPN Jumphost is a [devenv](https://devenv.sh)-managed toolkit that connects to an F5 BIG-IP APM VPN via OpenConnect (F5 protocol) and exposes a local SOCKS5 proxy so host applications can selectively route traffic to internal resources through the VPN tunnel. The entire runtime is a single Rust binary (`jumphost`) that supervises `openconnect` (which spawns `ocproxy`), an optional in-process routing SOCKS5 proxy, and an optional in-process PAC HTTP server. The routing proxy sits in front of ocproxy on `127.0.0.1:1080` and applies per-domain routing rules: VPN-domain traffic is forwarded upstream to ocproxy, everything else connects directly. This lets any SOCKS5-capable tool (git, curl, SSH, …) use a single proxy address without needing PAC support. A PAC (Proxy Auto-Configuration) subsystem is also included so browsers can use automatic proxy configuration. The host retains normal networking; only explicitly targeted domains or CIDRs traverse the tunnel.
+The VPN Jumphost is a [devenv](https://devenv.sh)-managed toolkit that connects to an F5 BIG-IP APM VPN via OpenConnect (F5 protocol) and exposes a local SOCKS5 proxy so host applications can selectively route traffic to internal resources through the VPN tunnel. The entire runtime is a single Rust binary (`jumphost`) that supervises `openconnect` (which spawns `ocproxy`), an optional in-process routing proxy (SOCKS5 + HTTP CONNECT), and an optional in-process PAC HTTP server. The routing proxy sits in front of ocproxy on `127.0.0.1:1080` and applies per-domain routing rules: VPN-domain traffic is forwarded upstream to ocproxy, everything else connects directly. This lets any SOCKS5-capable or HTTP-CONNECT-capable tool (git, curl, SSH, Zed, VS Code, …) use a single proxy address without needing PAC support. A PAC (Proxy Auto-Configuration) subsystem is also included so browsers can use automatic proxy configuration. The host retains normal networking; only explicitly targeted domains or CIDRs traverse the tunnel.
 
 Everything runs as the **current unprivileged user**. openconnect is started with `--script-tun --script "ocproxy ..."`, which means it does **not** create a TUN device or touch `/dev/net/tun`: it spawns `ocproxy` as a child, hands it the tunnel over a socketpair, and lets ocproxy's userspace TCP/IP stack (lwIP) terminate the VPN's IP packets. ocproxy serves SOCKS5 on `127.0.0.1:1081` directly; the routing proxy on port 1080 is the user-facing entry point.
 
@@ -21,7 +21,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 | **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`, `doctor`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
 | **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
-| **`src/routing.rs`** | Routing SOCKS5 proxy (ported 1:1 from the previous standalone `routing-proxy/` crate). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
+| **`src/routing.rs`** | Routing proxy — SOCKS5 + HTTP CONNECT (ported from the previous standalone `routing-proxy/` crate, extended with HTTP CONNECT auto-detection). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
 | **`src/pac.rs`** | PAC file generation **and** built-in HTTP server (replaces the old `miniserve` dependency). Pure tokio/hyper, no external process. Generates the PAC text from the same `PROXY_DOMAINS` / `DIRECT_DOMAINS` constants and serves it on `127.0.0.1:8091` when `serve_pac = true` in the config file. |
 | **`src/cookie.rs`** | Cookie subsystem. Validation uses `reqwest` with rustls and **redirects disabled** to probe the F5 endpoint (3xx = expired cookie). Browser-based fetch uses Chromium via [`chromiumoxide`](https://crates.io/crates/chromiumoxide), which speaks the Chrome DevTools Protocol directly — **no Node.js driver is required** (the playwright dependency is gone). |
 | **`src/jumphost.rs`** | Main supervisor module. Validates/refreshes the cookie before spawning openconnect; spawns and supervises the routing proxy and PAC server tasks; runs the periodic cookie-check loop; ties together the sleep/wake watcher (waking the loop immediately on resume so the VPN can be reconnected). |
@@ -72,10 +72,10 @@ A single process (`jumphost run`) owns all of the supervisory state, including t
 | Port | Binding | Protocol | Service |
 |------|---------|----------|---------|
 | 1080 | `127.0.0.1` | SOCKS5 | ocproxy (VPN tunnel endpoint, upstream of routing proxy) |
-| 1081 | `127.0.0.1` | SOCKS5 | routing proxy (user-facing; per-domain VPN-vs-direct routing) |
+| 1081 | `127.0.0.1` | SOCKS5 / HTTP CONNECT | routing proxy (user-facing; per-domain VPN-vs-direct routing) |
 | 8091 | `127.0.0.1` | HTTP | PAC file (in-process hyper server) |
 
-ocproxy listens on port 1080 and the routing proxy (always started) listens on port 1081. Clients point at `socks5h://127.0.0.1:1081` — the routing proxy decides per-domain whether to forward upstream to ocproxy or connect directly. All listeners bind to loopback by default.
+ocproxy listens on port 1080 and the routing proxy (always started) listens on port 1081. Clients point at `socks5h://127.0.0.1:1081` (SOCKS5) or set `http_proxy=http://127.0.0.1:1081` (HTTP CONNECT) — the routing proxy auto-detects the protocol and decides per-domain whether to forward upstream to ocproxy or connect directly. All listeners bind to loopback by default.
 
 ---
 
@@ -117,9 +117,9 @@ ocproxy listens on port 1080 and the routing proxy (always started) listens on p
 - No authentication is configured (the proxy is loopback-only).
 - Supports TCP only. UDP is not exposed via the SOCKS5 server.
 
-### 2a. Routing SOCKS5 Proxy (`src/routing.rs`)
+### 2a. Routing Proxy — SOCKS5 + HTTP CONNECT (`src/routing.rs`)
 
-**What it does:** A system-wide SOCKS5 proxy on `127.0.0.1:1081` (always started by the supervisor) that applies per-domain routing rules. VPN-domain traffic is forwarded upstream to ocproxy on port 1080; everything else connects directly. This eliminates the need for PAC support in non-browser tools (git, curl, apt, SSH, etc.).
+**What it does:** A system-wide proxy on `127.0.0.1:1081` (always started by the supervisor) that accepts both **SOCKS5** and **HTTP CONNECT** requests and applies per-domain routing rules. The protocol is auto-detected by peeking the first byte of each connection (`0x05` → SOCKS5, ASCII letter → HTTP CONNECT). VPN-domain traffic is forwarded upstream to ocproxy on port 1080; everything else connects directly. This eliminates the need for PAC support in non-browser tools (git, curl, apt, SSH, Zed, VS Code, etc.).
 
 **How it works:**
 - Implemented as a tokio task inside the `jumphost` binary (`src/routing.rs`). Ported 1:1 from the previously-standalone `routing-proxy/` crate, which no longer exists as a separate crate.
@@ -133,21 +133,25 @@ ocproxy listens on port 1080 and the routing proxy (always started) listens on p
 - Direct connections: resolved and connected locally.
 
 **Inputs:** `ROUTING_PROXY_PORT` (default 1081), `ROUTING_PROXY_BIND` (default 127.0.0.1), upstream ocproxy port (`SOCKS_PORT`, default 1080).
-**Outputs:** SOCKS5 listener on `127.0.0.1:1081`.
+**Outputs:** SOCKS5 + HTTP CONNECT listener on `127.0.0.1:1081`.
 
-**Client usage:** All tools can point at `socks5h://127.0.0.1:1081` — the routing proxy handles the VPN-vs-direct decision transparently:
+**Client usage:** All tools can point at `socks5h://127.0.0.1:1081` (SOCKS5) or `http://127.0.0.1:1081` (HTTP CONNECT) — the routing proxy handles the VPN-vs-direct decision transparently:
 ```bash
-# git
+# SOCKS5 — git
 git config --global http.proxy socks5h://127.0.0.1:1081
 
-# curl
+# SOCKS5 — curl
 curl --proxy socks5h://127.0.0.1:1081 https://internal.example.com
 
-# SSH — ProxyCommand
+# SOCKS5 — SSH ProxyCommand
 ssh -o 'ProxyCommand=nc -x 127.0.0.1:1081 -X 5 %h %p' host.example.com
 
-# Environment variable (many tools)
+# SOCKS5 — environment variable (many tools)
 export ALL_PROXY=socks5h://127.0.0.1:1081
+
+# HTTP CONNECT — desktop apps (Zed, VS Code, Electron apps, etc.)
+export http_proxy=http://127.0.0.1:1081
+export https_proxy=http://127.0.0.1:1081
 ```
 
 ### 3. PAC File Generation (`jumphost generate-pac`)
