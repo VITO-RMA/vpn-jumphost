@@ -259,22 +259,27 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
   - **macOS:** `apple-native-keyring-store` — stores credentials in macOS Keychain.
   - **Linux:** `dbus-secret-service-keyring-store` — stores credentials via the Secret Service API (GNOME Keyring / KWallet).
 - `jumphost authenticate` prompts interactively for username and password, then writes them to the keyring.
-- `jumphost authenticate --delete` removes any previously stored credentials from the keyring.
+- `jumphost authenticate --from-env` reads `VPN_USERNAME` and `VPN_PASSWORD` from the environment (both must be non-empty), stores them in the keyring, and skips the interactive prompt.
+- `jumphost deauthenticate` removes stored credentials from the keyring and deletes the cookie file and browser profile.
 - The keyring is checked as a credential source between env vars and the config file:
   1. `VPN_USERNAME` / `VPN_PASSWORD` env vars (highest priority)
   2. OS keyring (macOS Keychain / Linux Secret Service)
   3. Config file `[credentials]` table (value or `*_file` path)
 
 **CLI flags:**
-- `--delete` — remove stored credentials from the keyring instead of prompting for new ones.
+- `--from-env` — read credentials from `VPN_USERNAME` and `VPN_PASSWORD` instead of prompting.
+- `--no-headless` — open a visible browser window for the post-store cookie fetch (default is headless when credentials are available).
 
 **Standalone usage:**
 ```bash
-# Store credentials
+# Store credentials (interactive prompt)
 jumphost authenticate
 
-# Remove stored credentials
-jumphost authenticate --delete
+# Store credentials from environment variables
+VPN_USERNAME=you@company.com VPN_PASSWORD=secret jumphost authenticate --from-env
+
+# Remove stored credentials and cookie
+jumphost deauthenticate
 ```
 
 ### 9. SSH Proxy Configuration
@@ -496,7 +501,7 @@ CLI overview: `-c/--config FILE`, `--no-headless`, `-v/--verbose`. The `-c` and 
 
 `fetch-cookie` CLI: `--headless`.
 
-`authenticate` CLI: `--delete` (remove stored credentials instead of prompting).
+`authenticate` CLI: `--from-env` (read `VPN_USERNAME` / `VPN_PASSWORD` instead of prompting), `--no-headless`.
 
 ### Config Files
 

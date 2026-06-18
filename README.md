@@ -71,6 +71,12 @@ Before the first run, store your VPN credentials in the OS keyring:
 jumphost authenticate
 ```
 
+Or, if `VPN_USERNAME` and `VPN_PASSWORD` are already set in the environment:
+
+```bash
+jumphost authenticate --from-env
+```
+
 This prompts for your username and password and saves them in the platform's native credential store (macOS Keychain / Linux Secret Service). The browser-based cookie capture will use these to pre-fill the SSO form — you only need to confirm the MFA prompt.
 
 If you do not have a supported keyring backend, you can set the `VPN_USERNAME` and `VPN_PASSWORD` environment variables instead of using the keyring or configure the `username_file` and `password_file` options in the config file to read authentication information from the file contents.
