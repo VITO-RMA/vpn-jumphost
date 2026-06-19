@@ -1,6 +1,6 @@
 [package]
 name = "vpn-jumphost"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "VPN jumphost: OpenConnect+ocproxy supervisor, routing SOCKS5 proxy, PAC server, and F5 cookie management (pure Rust, no Python)."
 license = "MIT"

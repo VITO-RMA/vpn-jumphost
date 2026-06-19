@@ -155,7 +155,7 @@ proxychains-setup:
 # Example: just pc -- psql -h climkit.marvin.vito.local -U me -d mydb
 pc +ARGS:
     @chmod +x scripts/proxychains-wrap.sh
-    @./scripts/proxychains-wrap.sh {{ARGS}}
+    @./scripts/proxychains-wrap.sh {{ ARGS }}
 
 # Launch DBeaver through proxychains. Override path with DBEAVER_BIN.
 dbeaver:
@@ -178,3 +178,21 @@ dbeaver:
 test-db HOST="climkit.marvin.vito.local" PORT="5432":
     @echo "→ nc via socks5://127.0.0.1:1081 → {{ HOST }}:{{ PORT }}"
     @nc -z -X 5 -x 127.0.0.1:1081 -w 5 {{ HOST }} {{ PORT }}
+
+# Bump the version across all packaging manifests.
+# Usage: just bump_version 0.3.0
+bump_version NEW_VERSION:
+    @echo "Bumping version → {{ NEW_VERSION }}"
+    sd '^version = "[^"]+"' 'version = "{{ NEW_VERSION }}"' Cargo.toml
+    @echo "  ✓ Cargo.toml"
+    sd '^Version: .+' 'Version: {{ NEW_VERSION }}' contrib/debian/control
+    @echo "  ✓ contrib/debian/control"
+    sd '^vpn-jumphost \([^)]+\)' 'vpn-jumphost ({{ NEW_VERSION }})' contrib/debian/changelog
+    @echo "  ✓ contrib/debian/changelog"
+    sd '<string>[^<]+</string>(\n\s+<key>CFBundleShortVersionString)' '<string>{{ NEW_VERSION }}</string>$1' contrib/macos/Info.plist
+    sd '<string>[^<]+</string>(\n\s+<key>CFBundlePackageType)' '<string>{{ NEW_VERSION }}</string>$1' contrib/macos/Info.plist
+    @echo "  ✓ contrib/macos/Info.plist"
+    cargo generate-lockfile --quiet 2>/dev/null || true
+    @echo "  ✓ Cargo.lock"
+    @echo ""
+    @echo "Done. Verify with: git diff"

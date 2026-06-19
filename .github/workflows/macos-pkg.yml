@@ -35,28 +35,11 @@ jobs:
       - name: Run tests
         run: cargo test --release --locked
 
-      - name: Read package version
-        id: meta
-        run: |
-          version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          arch=$(uname -m)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "arch=$arch" >> "$GITHUB_OUTPUT"
-          echo "Package version: $version ($arch)"
-
       - name: Build .pkg
         run: bash contrib/macos/build-pkg.sh
-
-      - name: Verify .pkg
-        run: |
-          pkg="vpn-jumphost-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.arch }}.pkg"
-          pkgutil --payload-files "$pkg"
-          echo ""
-          echo "Package: $pkg"
-          ls -lh "$pkg"
 
       - name: Upload .pkg artefact
         uses: actions/upload-artifact@v5
         with:
-          name: vpn-jumphost-macos-${{ steps.meta.outputs.arch }}
-          path: "vpn-jumphost-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.arch }}.pkg"
+          name: vpn-jumphost-macos-pkg
+          path: "vpn-jumphost-*.pkg"

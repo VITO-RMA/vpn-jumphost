@@ -20,6 +20,7 @@
     with pkgs;
     [
       just
+      sd
       # VPN. openconnect feeds raw IP packets to ocproxy over a socketpair
       # (--script-tun), and ocproxy serves SOCKS5 from a userspace lwIP stack —
       # no kernel TUN, no namespace, no sudo.

@@ -45,48 +45,11 @@ jobs:
       - name: Run tests
         run: cargo test --release --locked
 
-      - name: Read package version
-        id: meta
-        run: |
-          version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Package version: $version"
-
-      - name: Stage package tree
-        run: |
-          pkg=pkg-root
-          mkdir -p "$pkg/DEBIAN"
-          mkdir -p "$pkg/usr/bin"
-          mkdir -p "$pkg/usr/lib/systemd/user"
-          mkdir -p "$pkg/usr/share/vpn-jumphost"
-          mkdir -p "$pkg/usr/share/doc/vpn-jumphost"
-
-          cp contrib/debian/control    "$pkg/DEBIAN/control"
-          install -m 755 contrib/debian/postinst "$pkg/DEBIAN/postinst"
-          install -m 755 contrib/debian/prerm    "$pkg/DEBIAN/prerm"
-          install -m 755 contrib/debian/postrm   "$pkg/DEBIAN/postrm"
-
-          install -m 755 target/release/jumphost              "$pkg/usr/bin/jumphost"
-          install -m 644 contrib/debian/vpn-jumphost.service   "$pkg/usr/lib/systemd/user/vpn-jumphost.service"
-          install -m 644 docs/config.example.toml              "$pkg/usr/share/vpn-jumphost/config.example.toml"
-          install -m 644 README.md                             "$pkg/usr/share/doc/vpn-jumphost/README.md"
-          install -m 644 spec.md                               "$pkg/usr/share/doc/vpn-jumphost/spec.md"
-          install -m 644 docs/architecture.md                  "$pkg/usr/share/doc/vpn-jumphost/architecture.md"
-          install -m 644 docs/ssh.md                           "$pkg/usr/share/doc/vpn-jumphost/ssh.md"
-          install -m 644 contrib/debian/copyright              "$pkg/usr/share/doc/vpn-jumphost/copyright"
-          gzip -9n -c contrib/debian/changelog > "$pkg/usr/share/doc/vpn-jumphost/changelog.gz"
-
       - name: Build .deb
-        run: |
-          dpkg-deb --build pkg-root "vpn-jumphost_${{ steps.meta.outputs.version }}_amd64.deb"
-
-      - name: Verify .deb
-        run: |
-          dpkg-deb --info "vpn-jumphost_${{ steps.meta.outputs.version }}_amd64.deb"
-          dpkg-deb --contents "vpn-jumphost_${{ steps.meta.outputs.version }}_amd64.deb"
+        run: bash contrib/debian/build-deb.sh
 
       - name: Upload .deb artefact
         uses: actions/upload-artifact@v5
         with:
           name: vpn-jumphost-deb
-          path: "vpn-jumphost_${{ steps.meta.outputs.version }}_amd64.deb"
+          path: "vpn-jumphost_*_amd64.deb"

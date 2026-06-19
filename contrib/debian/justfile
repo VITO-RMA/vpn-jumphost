@@ -31,42 +31,9 @@ build-package: build-image
         bash -lc '\
             set -euo pipefail; \
             cd /repo; \
-            version="$(sed -n '\''s/^version = "\([^"]*\)"/\1/p'\'' Cargo.toml | head -1)"; \
-            control_version="$(sed -n '\''s/^Version: //p'\'' contrib/debian/control | head -1)"; \
-            test -n "$version"; \
-            test "$version" = "$control_version"; \
-            target_dir=/target; \
-            pkg_root="$(mktemp -d)"; \
-            trap '\''rm -rf "$pkg_root"'\'' EXIT; \
-            chmod 755 "$pkg_root"; \
-            cargo build --release --locked --target-dir "$target_dir"; \
-            install -d "$pkg_root/DEBIAN"; \
-            install -d "$pkg_root/usr/bin"; \
-            install -d "$pkg_root/usr/lib/systemd/user"; \
-            install -d "$pkg_root/usr/share/vpn-jumphost"; \
-            install -d "$pkg_root/usr/share/doc/vpn-jumphost"; \
-            install -m 644 contrib/debian/control "$pkg_root/DEBIAN/control"; \
-            install -m 755 contrib/debian/postinst "$pkg_root/DEBIAN/postinst"; \
-            install -m 755 contrib/debian/prerm "$pkg_root/DEBIAN/prerm"; \
-            install -m 755 contrib/debian/postrm "$pkg_root/DEBIAN/postrm"; \
-            install -m 755 "$target_dir/release/jumphost" "$pkg_root/usr/bin/jumphost"; \
-            install -d "$pkg_root/usr/share/bash-completion/completions"; \
-            install -d "$pkg_root/usr/share/zsh/vendor-completions"; \
-            install -d "$pkg_root/usr/share/fish/vendor_completions.d"; \
-            "$target_dir/release/jumphost" generate-completions bash > "$pkg_root/usr/share/bash-completion/completions/jumphost"; \
-            "$target_dir/release/jumphost" generate-completions zsh  > "$pkg_root/usr/share/zsh/vendor-completions/_jumphost"; \
-            "$target_dir/release/jumphost" generate-completions fish > "$pkg_root/usr/share/fish/vendor_completions.d/jumphost.fish"; \
-            install -m 644 contrib/debian/vpn-jumphost.service "$pkg_root/usr/lib/systemd/user/vpn-jumphost.service"; \
-            install -m 644 docs/config.example.toml "$pkg_root/usr/share/vpn-jumphost/config.example.toml"; \
-            install -m 644 README.md "$pkg_root/usr/share/doc/vpn-jumphost/README.md"; \
-            install -m 644 spec.md "$pkg_root/usr/share/doc/vpn-jumphost/spec.md"; \
-            install -m 644 docs/architecture.md "$pkg_root/usr/share/doc/vpn-jumphost/architecture.md"; \
-            install -m 644 docs/ssh.md "$pkg_root/usr/share/doc/vpn-jumphost/ssh.md"; \
-            install -m 644 contrib/debian/copyright "$pkg_root/usr/share/doc/vpn-jumphost/copyright"; \
-            gzip -9n -c contrib/debian/changelog > "$pkg_root/usr/share/doc/vpn-jumphost/changelog.gz"; \
-            dpkg-deb --build "$pkg_root" "/out/{{ pkg_name }}_${version}_amd64.deb"; \
-            dpkg-deb --info "/out/{{ pkg_name }}_${version}_amd64.deb"; \
-            dpkg-deb --contents "/out/{{ pkg_name }}_${version}_amd64.deb" \
+            cargo build --release --locked --target-dir /target; \
+            bash contrib/debian/build-deb.sh /target/release/jumphost; \
+            cp vpn-jumphost_*_amd64.deb /out/ \
         '
 
 lintian: build-package

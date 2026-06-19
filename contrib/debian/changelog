@@ -1,4 +1,4 @@
-vpn-jumphost (0.2.0) unstable; urgency=medium
+vpn-jumphost (0.3.0) unstable; urgency=medium
 
   * Package the vpn-jumphost binary, systemd user unit, example config, and
     user documentation for local Debian/Ubuntu installation.
