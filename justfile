@@ -192,6 +192,8 @@ bump_version NEW_VERSION:
     sd '<string>[^<]+</string>(\n\s+<key>CFBundleShortVersionString)' '<string>{{ NEW_VERSION }}</string>$1' contrib/macos/Info.plist
     sd '<string>[^<]+</string>(\n\s+<key>CFBundlePackageType)' '<string>{{ NEW_VERSION }}</string>$1' contrib/macos/Info.plist
     @echo "  ✓ contrib/macos/Info.plist"
+    sd 'version = "[^"]+";' 'version = "{{ NEW_VERSION }}";' flake.nix
+    @echo "  ✓ flake.nix"
     cargo generate-lockfile --quiet 2>/dev/null || true
     @echo "  ✓ Cargo.lock"
     @echo ""
