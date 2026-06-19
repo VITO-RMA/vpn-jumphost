@@ -1,5 +1,12 @@
 # SSH through the jumphost
 
+Add this to your .ssh/config:
+
+```ssh
+Host *.company.com *.company.local
+    ProxyCommand nc -x 127.0.0.1:1080 -X 5 %h %p
+```
+
 SSH uses the local SOCKS5 proxy via `ProxyCommand` (PAC files are not consulted by `ssh`).
 
 ```mermaid
