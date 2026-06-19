@@ -176,10 +176,8 @@ pub struct VpnCredentials {
 /// the same source. Returns `None` otherwise.
 pub fn vpn_credentials() -> Option<VpnCredentials> {
     // 1. Read from the environment
-    let env_u = std::env::var("VPN_USERNAME").ok().filter(|s| !s.is_empty());
-    let env_p = std::env::var("VPN_PASSWORD").ok().filter(|s| !s.is_empty());
-    if let (Some(username), Some(password)) = (env_u, env_p) {
-        return Some(VpnCredentials { username, password });
+    if let Some(creds) = env_vpn_credentials() {
+        return Some(creds);
     }
 
     // 2. OS keyring
@@ -200,6 +198,15 @@ pub fn vpn_credentials() -> Option<VpnCredentials> {
     }
 
     None
+}
+
+/// Read VPN credentials from `VPN_USERNAME` and `VPN_PASSWORD` only.
+///
+/// Returns `Some` only when both variables are set and non-empty.
+pub fn env_vpn_credentials() -> Option<VpnCredentials> {
+    let username = std::env::var("VPN_USERNAME").ok().filter(|s| !s.is_empty())?;
+    let password = std::env::var("VPN_PASSWORD").ok().filter(|s| !s.is_empty())?;
+    Some(VpnCredentials { username, password })
 }
 
 /// Read a secret from a file; returns `None` (with a warning) on error or empty content.

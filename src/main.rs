@@ -70,6 +70,11 @@ struct RunArgs {
 
 #[derive(Args, Debug, Clone)]
 struct AuthenticateArgs {
+    /// Read username and password from `VPN_USERNAME` and `VPN_PASSWORD`
+    /// instead of prompting interactively, then store them in the OS keyring.
+    #[arg(long)]
+    from_env: bool,
+
     /// Disable headless cookie refresh. By default the supervisor uses
     /// headless mode when credentials are configured and shows an MFA
     /// desktop notification. This flag forces it to always open a visible
@@ -232,29 +237,40 @@ async fn cmd_test_notification() -> ExitCode {
 // ── Signal handling ──────────────────────────────────────────────────────
 
 async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
-    eprint!("VPN username: ");
-    let mut username = String::new();
-    if let Err(e) = std::io::stdin().read_line(&mut username) {
-        error!(error = %e, "failed to read username");
-        return ExitCode::FAILURE;
-    }
-    let username = username.trim().to_string();
-    if username.is_empty() {
-        error!("username must not be empty");
-        return ExitCode::FAILURE;
-    }
-
-    let password = match rpassword::prompt_password("VPN password: ") {
-        Ok(p) => p,
-        Err(e) => {
-            error!(error = %e, "failed to read password");
+    let (username, password) = if args.from_env {
+        match config::env_vpn_credentials() {
+            Some(creds) => (creds.username, creds.password),
+            None => {
+                error!("--from-env requires non-empty VPN_USERNAME and VPN_PASSWORD");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        eprint!("VPN username: ");
+        let mut username = String::new();
+        if let Err(e) = std::io::stdin().read_line(&mut username) {
+            error!(error = %e, "failed to read username");
             return ExitCode::FAILURE;
         }
+        let username = username.trim().to_string();
+        if username.is_empty() {
+            error!("username must not be empty");
+            return ExitCode::FAILURE;
+        }
+
+        let password = match rpassword::prompt_password("VPN password: ") {
+            Ok(p) => p,
+            Err(e) => {
+                error!(error = %e, "failed to read password");
+                return ExitCode::FAILURE;
+            }
+        };
+        if password.is_empty() {
+            error!("password must not be empty");
+            return ExitCode::FAILURE;
+        }
+        (username, password)
     };
-    if password.is_empty() {
-        error!("password must not be empty");
-        return ExitCode::FAILURE;
-    }
 
     if let Err(e) = credential_store::store_credentials(&username, &password) {
         error!(error = %e, "failed to store credentials");
