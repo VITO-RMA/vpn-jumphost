@@ -18,7 +18,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 
 | Component | Role |
 |---|---|
-| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`, `doctor`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
+| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`, `doctor`, `test-tunnel`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
 | **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
 | **`src/routing.rs`** | Routing proxy — SOCKS5 + HTTP CONNECT (ported from the previous standalone `routing-proxy/` crate, extended with HTTP CONNECT auto-detection). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
@@ -236,6 +236,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just fetch-cookie` | `./target/release/jumphost fetch-cookie` — fetches the MRHSession cookie via Chromium and writes it to `$VPN_COOKIE_FILE` |
 | `just validate-cookie` | `./target/release/jumphost validate-cookie` — probes the VPN endpoint with the current cookie. Exit 0 = valid, 1 = invalid, 2 = network error. |
 | `just doctor` | `./target/release/jumphost doctor` — health checks for config, cookie, routing proxy, VPN tunnel, PAC server (if enabled), and proxychains setup. Exit 0 when all critical checks pass. |
+| `just test-tunnel [ARGS]` | `./target/release/jumphost test-tunnel` — SOCKS5 CONNECT probes through the routing proxy (default targets: VPN URL host on 443 + `channelv.vito.local:80`). Requires `jumphost run` to be up. Pass `-H host[:port]` to override targets; `--retries N` to poll until the tunnel is ready. |
 | `just pac-gen` | `./target/release/jumphost generate-pac proxy.pac` |
 | `just pac-show` | Prints the generated PAC text to stdout |
 | `just start` | Runs `./target/release/jumphost -c docs/config.example.toml run` in the foreground (Ctrl-C to stop). Starts openconnect + ocproxy, the routing proxy on `127.0.0.1:1081`, and the loopback PAC server (example config sets `serve_pac = true`). Uses the example config for VPN URL + domain lists; override with a user-local `config.toml` or env vars. |
@@ -306,7 +307,7 @@ jumphost deauthenticate
 - Create connections with the real database hostname and port; leave SSH tunneling disabled in the client.
 - Scales to many databases: one wrapper setup, unlimited connections by hostname.
 
-**Usage:** See [docs/databases.md](docs/databases.md). Helpers: `just proxychains-setup`, `just doctor`, `just pc`, `just dbeaver`, `just test-db`, [`scripts/proxychains-wrap.sh`](scripts/proxychains-wrap.sh), [`docs/proxychains.conf.example`](docs/proxychains.conf.example).
+**Usage:** See [docs/databases.md](docs/databases.md). Helpers: `just proxychains-setup`, `just doctor`, `just test-tunnel`, `just pc`, `just dbeaver`, `just test-db`, [`scripts/proxychains-wrap.sh`](scripts/proxychains-wrap.sh), [`docs/proxychains.conf.example`](docs/proxychains.conf.example).
 
 ### 11. Setup health check (`jumphost doctor`)
 
@@ -324,6 +325,21 @@ jumphost deauthenticate
 **Exit codes:** 0 = all critical checks passed; 1 = one or more critical checks failed.
 
 **Usage:** `jumphost doctor` or `just doctor`.
+
+### 12. Tunnel probe (`jumphost test-tunnel`)
+
+**What it does:** Verifies end-to-end connectivity through the routing proxy by issuing SOCKS5 `CONNECT` requests to configured hosts (domain-name ATYP, i.e. `socks5h` semantics). Unlike `doctor`, this proves that routing, upstream ocproxy, and VPN DNS work — not merely that a port is listening.
+
+**Default targets** (when `[probe].hosts` is unset and no `-H` flags are passed):
+
+1. Hostname from `vpn_url` on port **443** (expected **direct** route — VPN portal sanity check).
+2. `channelv.vito.local` on port **80** (expected **tunnel** route when listed under `[domains].proxy`).
+
+**CLI flags:** `-H/--host HOST[:PORT]` (repeatable), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all` (default), `-q/--quiet`.
+
+**Exit codes:** 0 = probes passed (all by default, or any with `--require-any`); 1 = one or more probes failed; 2 = routing proxy not reachable (start `jumphost run` first).
+
+**Usage:** `jumphost test-tunnel` or `just test-tunnel`. For HTTP/SSH/Postgres smoke tests that need external tools, use `just test-curl`, `just test-cluster`, and `just test-db`.
 
 ---
 
@@ -481,6 +497,9 @@ password_file = "/run/secrets/vpn_pass"
 | `credentials.password` | string | VPN password (also settable via `VPN_PASSWORD` env var or OS keyring) |
 | `credentials.username_file` | path | Path to file containing username |
 | `credentials.password_file` | path | Path to file containing password |
+| `probe.hosts` | array of strings | Tunnel probe targets as `host` or `host:port` (default port 443) |
+| `probe.timeout_secs` | integer | Per-probe SOCKS5 connect timeout (default: 10) |
+| `probe.retries` | integer | Additional retries per failed probe (default: 0) |
 
 The `[domains]` table is the way to set proxy and direct domain lists. The domain lists are cached on first access and remain stable for the process lifetime.
 
@@ -502,6 +521,8 @@ CLI overview: `-c/--config FILE`, `--no-headless`, `-v/--verbose`. The `-c` and 
 `fetch-cookie` CLI: `--headless`.
 
 `authenticate` CLI: `--from-env` (read `VPN_USERNAME` / `VPN_PASSWORD` instead of prompting), `--no-headless`.
+
+`test-tunnel` CLI: `-H/--host HOST[:PORT]` (repeatable), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all`, `-q/--quiet`.
 
 ### Config Files
 

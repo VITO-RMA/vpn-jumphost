@@ -97,9 +97,12 @@ Verify the setup:
 
 ```bash
 jumphost doctor
+jumphost test-tunnel    # end-to-end SOCKS5 probe via :1081 (requires jumphost run)
 ```
 
-Checks config, cookie, routing proxy (`:1081`), VPN tunnel (`:1080`), PAC server, and proxychains (for database clients). Exit 0 means all critical checks passed.
+`doctor` checks config, cookie, routing proxy (`:1081`), VPN tunnel (`:1080`), PAC server, and proxychains (for database clients). Exit 0 means all critical checks passed.
+
+`test-tunnel` issues SOCKS5 `CONNECT` probes through the routing proxy (defaults: VPN portal on 443, `channelv.vito.local` on 80) — use it after start to confirm the tunnel actually routes traffic, not just that listeners are up.
 
 ## Point your tools at the proxy:
 
