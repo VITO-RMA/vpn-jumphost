@@ -86,6 +86,8 @@ pub struct FileConfig {
     pub domains: Option<DomainsConfig>,
     /// VPN credentials.
     pub credentials: Option<CredentialsConfig>,
+    /// Tunnel probe settings (`jumphost test-tunnel`).
+    pub probe: Option<ProbeConfig>,
 }
 
 /// `[routing_proxy]` table.
@@ -116,6 +118,18 @@ pub struct DomainsConfig {
     pub proxy: Option<Vec<String>>,
     /// Domains always reached directly (overrides `DIRECT_DOMAINS` constant).
     pub direct: Option<Vec<String>>,
+}
+
+/// `[probe]` table.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct ProbeConfig {
+    /// Probe targets as `host` or `host:port` (port defaults to 443 when omitted).
+    pub hosts: Option<Vec<String>>,
+    /// Per-probe connect timeout in seconds.
+    pub timeout_secs: Option<u64>,
+    /// Additional retries per failed probe.
+    pub retries: Option<u32>,
 }
 
 /// `[credentials]` table.

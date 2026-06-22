@@ -6,8 +6,10 @@ mod doctor;
 mod jumphost;
 mod logging;
 mod pac;
+mod probe;
 mod routing;
 mod sleepwake;
+mod test_tunnel;
 mod vpn;
 
 use std::path::PathBuf;
@@ -56,6 +58,8 @@ enum Command {
     GenerateCompletions(GenerateCompletionsArgs),
     /// Run health checks for config, cookie, listeners, and proxychains
     Doctor,
+    /// Probe end-to-end connectivity through the routing proxy (SOCKS5 CONNECT)
+    TestTunnel(test_tunnel::TestTunnelArgs),
 }
 
 #[derive(Args, Debug, Default, Clone)]
@@ -132,6 +136,7 @@ async fn main() -> ExitCode {
         Command::TestNotification => cmd_test_notification().await,
         Command::GenerateCompletions(args) => cmd_generate_completions(args),
         Command::Doctor => doctor::run().await,
+        Command::TestTunnel(args) => test_tunnel::run(args).await,
     }
 }
 

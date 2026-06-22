@@ -92,6 +92,12 @@ stop:
       echo "jumphost: not running (no pidfile)."
     fi
 
+# Smoke-test end-to-end tunnel connectivity via SOCKS5 CONNECT.
+# Requires `just start` (or `just start-detached`) to be running.
+# Override targets with e.g. `just test-tunnel -H my.host.example:443`.
+test-tunnel *ARGS: build
+    @{{ BIN }} -c docs/config.example.toml test-tunnel {{ ARGS }}
+
 # Run the unit tests for the Rust crate.
 test:
     @cargo test --release

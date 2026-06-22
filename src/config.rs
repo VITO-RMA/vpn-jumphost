@@ -46,6 +46,12 @@ pub const COOKIE_NAME: &str = "MRHSession";
 /// the current cookie is still accepted by the VPN gateway.
 pub const COOKIE_PROBE_PATH: &str = "/vdesk/vpn/index.php3?outform=xml";
 
+/// Default TCP port when a probe target omits an explicit port.
+pub const DEFAULT_PROBE_PORT: u16 = 443;
+
+/// Default per-probe connect timeout.
+pub const DEFAULT_PROBE_TIMEOUT_SECS: u64 = 10;
+
 // ── Domain routing constants (single source of truth) ────────────────────────
 //
 // Both the PAC generator (`pac::generate`) and the routing SOCKS5 proxy
@@ -279,4 +285,53 @@ pub fn cookie_check_interval() -> Duration {
 
 pub fn chromium_path() -> Option<PathBuf> {
     config_file::get().chromium_path.clone()
+}
+
+/// Configured `[probe].hosts` entries, if any.
+pub fn probe_hosts_from_config() -> Option<Vec<String>> {
+    config_file::get()
+        .probe
+        .as_ref()
+        .and_then(|p| p.hosts.clone())
+}
+
+pub fn probe_timeout() -> Duration {
+    let secs = config_file::get()
+        .probe
+        .as_ref()
+        .and_then(|p| p.timeout_secs)
+        .unwrap_or(DEFAULT_PROBE_TIMEOUT_SECS);
+    Duration::from_secs(secs.max(1))
+}
+
+pub fn probe_retries() -> u32 {
+    config_file::get()
+        .probe
+        .as_ref()
+        .and_then(|p| p.retries)
+        .unwrap_or(0)
+}
+
+/// Routing label for probe output (`direct` vs `tunnel`).
+pub fn route_label_for_host(hostname: &str) -> &'static str {
+    for pat in direct_domains() {
+        if domain_matches(hostname, pat) {
+            return "direct";
+        }
+    }
+    for pat in proxy_domains() {
+        if domain_matches(hostname, pat) {
+            return "tunnel";
+        }
+    }
+    "direct"
+}
+
+fn domain_matches(hostname: &str, pattern: &str) -> bool {
+    let h = hostname.to_ascii_lowercase();
+    let p = pattern.to_ascii_lowercase();
+    if h == p {
+        return true;
+    }
+    h.ends_with(&format!(".{p}"))
 }

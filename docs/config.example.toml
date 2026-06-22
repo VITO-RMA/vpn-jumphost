@@ -74,3 +74,14 @@ direct = ["byod.vito.be"]
 [credentials]
 # username_file = "/run/secrets/vpn_user"
 # password_file = "/run/secrets/vpn_pass"
+
+# -- Tunnel probes (jumphost test-tunnel) -----------------------------
+#
+# Required for `jumphost test-tunnel` (unless you pass -H on the CLI).
+# No compiled-in defaults — list the VPN portal (direct) and at least one
+# VPN-side host (tunnel) from [domains].proxy.
+
+[probe]
+hosts = ["byod.vito.be:443", "channelv.vito.local:80"]
+# timeout_secs = 10
+# retries = 0
