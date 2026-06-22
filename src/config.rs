@@ -46,14 +46,8 @@ pub const COOKIE_NAME: &str = "MRHSession";
 /// the current cookie is still accepted by the VPN gateway.
 pub const COOKIE_PROBE_PATH: &str = "/vdesk/vpn/index.php3?outform=xml";
 
-/// Default TCP port for direct (VPN portal) tunnel probes.
+/// Default TCP port when a probe target omits an explicit port.
 pub const DEFAULT_PROBE_PORT: u16 = 443;
-
-/// Default VPN-side host for tunnel probes when `[probe].hosts` is unset.
-pub const DEFAULT_TUNNEL_PROBE_HOST: &str = "channelv.vito.local";
-
-/// Default TCP port for the VPN-side tunnel probe host.
-pub const DEFAULT_TUNNEL_PROBE_PORT: u16 = 80;
 
 /// Default per-probe connect timeout.
 pub const DEFAULT_PROBE_TIMEOUT_SECS: u64 = 10;
@@ -340,17 +334,4 @@ fn domain_matches(hostname: &str, pattern: &str) -> bool {
         return true;
     }
     h.ends_with(&format!(".{p}"))
-}
-
-pub fn host_from_url(url: &str) -> Option<String> {
-    let url = url.trim();
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))?;
-    let host = rest.split('/').next()?.split(':').next()?;
-    if host.is_empty() {
-        None
-    } else {
-        Some(host.to_string())
-    }
 }

@@ -236,7 +236,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just fetch-cookie` | `./target/release/jumphost fetch-cookie` — fetches the MRHSession cookie via Chromium and writes it to `$VPN_COOKIE_FILE` |
 | `just validate-cookie` | `./target/release/jumphost validate-cookie` — probes the VPN endpoint with the current cookie. Exit 0 = valid, 1 = invalid, 2 = network error. |
 | `just doctor` | `./target/release/jumphost doctor` — health checks for config, cookie, routing proxy, VPN tunnel, PAC server (if enabled), and proxychains setup. Exit 0 when all critical checks pass. |
-| `just test-tunnel [ARGS]` | `./target/release/jumphost test-tunnel` — SOCKS5 CONNECT probes through the routing proxy (default targets: VPN URL host on 443 + `channelv.vito.local:80`). Requires `jumphost run` to be up. Pass `-H host[:port]` to override targets; `--retries N` to poll until the tunnel is ready. |
+| `just test-tunnel [ARGS]` | `./target/release/jumphost test-tunnel` — SOCKS5 CONNECT probes through the routing proxy. Requires `jumphost run` to be up and `[probe].hosts` in config (or `-H host[:port]`). Pass `--retries N` to poll until the tunnel is ready. |
 | `just pac-gen` | `./target/release/jumphost generate-pac proxy.pac` |
 | `just pac-show` | Prints the generated PAC text to stdout |
 | `just start` | Runs `./target/release/jumphost -c docs/config.example.toml run` in the foreground (Ctrl-C to stop). Starts openconnect + ocproxy, the routing proxy on `127.0.0.1:1081`, and the loopback PAC server (example config sets `serve_pac = true`). Uses the example config for VPN URL + domain lists; override with a user-local `config.toml` or env vars. |
@@ -330,12 +330,9 @@ jumphost deauthenticate
 
 **What it does:** Verifies end-to-end connectivity through the routing proxy by issuing SOCKS5 `CONNECT` requests to configured hosts (domain-name ATYP, i.e. `socks5h` semantics). Unlike `doctor`, this proves that routing, upstream ocproxy, and VPN DNS work — not merely that a port is listening.
 
-**Default targets** (when `[probe].hosts` is unset and no `-H` flags are passed):
+**Probe targets** (when no `-H` flags are passed): read from `[probe].hosts` in the config file. There are no compiled-in defaults — configure at least one direct target (typically the VPN portal on 443) and one tunnel target (a host from `[domains].proxy`). See `docs/config.example.toml`.
 
-1. Hostname from `vpn_url` on port **443** (expected **direct** route — VPN portal sanity check).
-2. `channelv.vito.local` on port **80** (expected **tunnel** route when listed under `[domains].proxy`).
-
-**CLI flags:** `-H/--host HOST[:PORT]` (repeatable), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all` (default), `-q/--quiet`.
+**CLI flags:** `-H/--host HOST[:PORT]` (repeatable, overrides config), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all` (default), `-q/--quiet`.
 
 **Exit codes:** 0 = probes passed (all by default, or any with `--require-any`); 1 = one or more probes failed; 2 = routing proxy not reachable (start `jumphost run` first).
 
@@ -497,7 +494,7 @@ password_file = "/run/secrets/vpn_pass"
 | `credentials.password` | string | VPN password (also settable via `VPN_PASSWORD` env var or OS keyring) |
 | `credentials.username_file` | path | Path to file containing username |
 | `credentials.password_file` | path | Path to file containing password |
-| `probe.hosts` | array of strings | Tunnel probe targets as `host` or `host:port` (default port 443) |
+| `probe.hosts` | array of strings | Probe targets as `host` or `host:port` (port defaults to 443). Required for `test-tunnel` unless `-H` is passed on the CLI. |
 | `probe.timeout_secs` | integer | Per-probe SOCKS5 connect timeout (default: 10) |
 | `probe.retries` | integer | Additional retries per failed probe (default: 0) |
 

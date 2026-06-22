@@ -168,31 +168,13 @@ pub async fn socks5_connect_via_routing(
     Ok(started.elapsed())
 }
 
-/// Resolve probe targets from config or built-in defaults.
+/// Resolve probe targets from `[probe].hosts` in the config file.
 pub fn probe_targets() -> Vec<ProbeTarget> {
-    if let Some(hosts) = crate::config::probe_hosts_from_config() {
-        return hosts
-            .iter()
-            .filter_map(|h| parse_probe_target(h, crate::config::DEFAULT_PROBE_PORT))
-            .collect();
-    }
-    default_probe_targets()
-}
-
-fn default_probe_targets() -> Vec<ProbeTarget> {
-    let mut targets = Vec::new();
-    let vpn_url = crate::config::cfg_string("VPN_URL", crate::config::DEFAULT_VPN_URL);
-    if let Some(host) = crate::config::host_from_url(&vpn_url) {
-        targets.push(ProbeTarget {
-            host,
-            port: crate::config::DEFAULT_PROBE_PORT,
-        });
-    }
-    targets.push(ProbeTarget {
-        host: crate::config::DEFAULT_TUNNEL_PROBE_HOST.to_string(),
-        port: crate::config::DEFAULT_TUNNEL_PROBE_PORT,
-    });
-    targets
+    crate::config::probe_hosts_from_config()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|h| parse_probe_target(h, crate::config::DEFAULT_PROBE_PORT))
+        .collect()
 }
 
 /// Run probes for each target, retrying failures up to `retries` additional times.
@@ -268,15 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn default_targets_include_tunnel_host_on_443() {
-        let targets = default_probe_targets();
-        assert!(
-            targets
-                .iter()
-                .any(|t| {
-                    t.host == crate::config::DEFAULT_TUNNEL_PROBE_HOST
-                        && t.port == crate::config::DEFAULT_TUNNEL_PROBE_PORT
-                })
-        );
+    fn probe_targets_empty_without_config() {
+        assert!(probe_targets().is_empty());
     }
 }

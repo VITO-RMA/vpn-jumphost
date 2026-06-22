@@ -69,7 +69,9 @@ pub async fn run(args: TestTunnelArgs) -> ExitCode {
 
     let targets = resolve_targets(&args.hosts);
     if targets.is_empty() {
-        eprintln!("test-tunnel: no probe targets configured");
+        eprintln!(
+            "test-tunnel: no probe targets — set [probe].hosts in config.toml or pass -H host[:port]"
+        );
         return ExitCode::FAILURE;
     }
 

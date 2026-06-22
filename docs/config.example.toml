@@ -77,10 +77,11 @@ direct = ["byod.vito.be"]
 
 # -- Tunnel probes (jumphost test-tunnel) -----------------------------
 #
-# When hosts is unset, defaults are: vpn_url host:443 and
-# channelv.vito.local:80.
+# Required for `jumphost test-tunnel` (unless you pass -H on the CLI).
+# No compiled-in defaults — list the VPN portal (direct) and at least one
+# VPN-side host (tunnel) from [domains].proxy.
 
-# [probe]
-# hosts = ["byod.vito.be:443", "channelv.vito.local:80"]
+[probe]
+hosts = ["byod.vito.be:443", "channelv.vito.local:80"]
 # timeout_secs = 10
 # retries = 0
