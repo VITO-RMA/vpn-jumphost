@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use nu_ansi_term::{Color, Style};
 use tokio::net::TcpStream;
 
 use crate::config::{self, DEFAULT_VPN_URL};
 use crate::config_file;
 use crate::cookie::{self, CookieStatus};
+use crate::logging;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
@@ -32,13 +34,19 @@ pub async fn run() -> ExitCode {
     check_listeners(&mut lines).await;
     check_proxychains(&mut lines);
 
+    let color = logging::use_color();
+
+    let ok_style = if color { Color::Green.normal() } else { Style::default() };
+    let warn_style = if color { Color::Yellow.normal() } else { Style::default() };
+    let fail_style = if color { Color::Red.bold() } else { Style::default() };
+
     eprintln!("jumphost doctor\n");
     let mut failed = false;
     for line in &lines {
         let tag = match line.status {
-            Status::Ok => "ok  ",
-            Status::Warn => "warn",
-            Status::Fail => "FAIL",
+            Status::Ok => ok_style.paint("ok  "),
+            Status::Warn => warn_style.paint("warn"),
+            Status::Fail => fail_style.paint("FAIL"),
         };
         eprintln!("  [{tag}]  {:<22} {}", line.label, line.detail);
         if line.status == Status::Fail {
@@ -67,19 +75,9 @@ fn push(lines: &mut Vec<Line>, label: &'static str, status: Status, detail: impl
 fn check_config(lines: &mut Vec<Line>) {
     let path = config_file::config_file_path();
     if !path.is_file() {
-        push(
-            lines,
-            "config file",
-            Status::Fail,
-            format!("missing: {}", path.display()),
-        );
+        push(lines, "config file", Status::Fail, format!("missing: {}", path.display()));
     } else {
-        push(
-            lines,
-            "config file",
-            Status::Ok,
-            path.display().to_string(),
-        );
+        push(lines, "config file", Status::Ok, path.display().to_string());
     }
 
     let vpn_url = config::cfg_string("VPN_URL", DEFAULT_VPN_URL);
@@ -98,36 +96,21 @@ fn check_config(lines: &mut Vec<Line>) {
             "empty — add VPN domain suffixes (e.g. vito.local)",
         );
     } else {
-        push(
-            lines,
-            "domains.proxy",
-            Status::Ok,
-            proxy.join(", "),
-        );
+        push(lines, "domains.proxy", Status::Ok, proxy.join(", "));
     }
 }
 
 fn check_credentials(lines: &mut Vec<Line>) {
     match config::vpn_credentials() {
         Some(_) => push(lines, "credentials", Status::Ok, "configured"),
-        None => push(
-            lines,
-            "credentials",
-            Status::Warn,
-            "not found — run: jumphost authenticate",
-        ),
+        None => push(lines, "credentials", Status::Warn, "not found — run: jumphost authenticate"),
     }
 }
 
 async fn check_cookie(lines: &mut Vec<Line>) {
     let cookie_file = config::cookie_file_path();
     if !cookie_file.is_file() {
-        push(
-            lines,
-            "cookie",
-            Status::Warn,
-            format!("missing: {}", cookie_file.display()),
-        );
+        push(lines, "cookie", Status::Warn, format!("missing: {}", cookie_file.display()));
         return;
     }
 
@@ -144,12 +127,7 @@ async fn check_cookie(lines: &mut Vec<Line>) {
             );
         }
         CookieStatus::NetworkError => {
-            push(
-                lines,
-                "cookie",
-                Status::Warn,
-                "could not reach VPN endpoint to validate",
-            );
+            push(lines, "cookie", Status::Warn, "could not reach VPN endpoint to validate");
         }
     }
 }
@@ -162,12 +140,7 @@ async fn check_listeners(lines: &mut Vec<Line>) {
     let pac_port = config::cfg_u16("PAC_SERVE_PORT", config::DEFAULT_PAC_PORT);
 
     if listener_up(&rp_bind, rp_port).await {
-        push(
-            lines,
-            "routing proxy",
-            Status::Ok,
-            format!("{rp_bind}:{rp_port}"),
-        );
+        push(lines, "routing proxy", Status::Ok, format!("{rp_bind}:{rp_port}"));
     } else {
         push(
             lines,
@@ -178,12 +151,7 @@ async fn check_listeners(lines: &mut Vec<Line>) {
     }
 
     if listener_up(&rp_bind, socks_port).await {
-        push(
-            lines,
-            "ocproxy (VPN)",
-            Status::Ok,
-            format!("{rp_bind}:{socks_port}"),
-        );
+        push(lines, "ocproxy (VPN)", Status::Ok, format!("{rp_bind}:{socks_port}"));
     } else {
         push(
             lines,
@@ -195,12 +163,7 @@ async fn check_listeners(lines: &mut Vec<Line>) {
 
     if config::serve_pac() {
         if listener_up(&pac_bind, pac_port).await {
-            push(
-                lines,
-                "PAC server",
-                Status::Ok,
-                format!("http://{pac_bind}:{pac_port}"),
-            );
+            push(lines, "PAC server", Status::Ok, format!("http://{pac_bind}:{pac_port}"));
         } else {
             push(
                 lines,
@@ -226,25 +189,10 @@ fn check_proxychains(lines: &mut Vec<Line>) {
 
     let rp_port = config::cfg_u16("ROUTING_PROXY_PORT", config::DEFAULT_ROUTING_PROXY_PORT);
     match find_proxychains_config() {
-        None => push(
-            lines,
-            "proxychains config",
-            Status::Warn,
-            "not found — run: just proxychains-setup",
-        ),
+        None => push(lines, "proxychains config", Status::Warn, "not found — run: just proxychains-setup"),
         Some(path) => match validate_proxychains_config(&path, rp_port) {
-            Ok(()) => push(
-                lines,
-                "proxychains config",
-                Status::Ok,
-                path.display().to_string(),
-            ),
-            Err(msg) => push(
-                lines,
-                "proxychains config",
-                Status::Warn,
-                format!("{} ({})", msg, path.display()),
-            ),
+            Ok(()) => push(lines, "proxychains config", Status::Ok, path.display().to_string()),
+            Err(msg) => push(lines, "proxychains config", Status::Warn, format!("{} ({})", msg, path.display())),
         },
     }
 }

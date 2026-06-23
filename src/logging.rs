@@ -44,7 +44,7 @@ pub fn init(verbose: bool) {
         .try_init();
 }
 
-fn use_color() -> bool {
+pub fn use_color() -> bool {
     if env::var_os("NO_COLOR").is_some() {
         return false;
     }

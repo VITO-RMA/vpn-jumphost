@@ -3035,6 +3035,7 @@ dependencies = [
  "keyring-core",
  "nix",
  "notify-rust",
+ "nu-ansi-term",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

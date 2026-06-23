@@ -20,6 +20,7 @@ dotenvy = "0.15"
 futures-util = "0.3"
 keyring-core = "1"
 nix = { version = "0.31", features = ["process", "signal"] }
+nu-ansi-term = "0.50"
 reqwest = "0.13"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
