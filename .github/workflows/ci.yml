@@ -27,11 +27,9 @@ jobs:
         with:
           name: devenv
 
-      - uses: DeterminateSystems/magic-nix-cache-action@v14
-
-      - name: Install devenv
+      - name: Install devenv.sh
         shell: bash
-        run: nix profile install nixpkgs#devenv
+        run: nix profile add nixpkgs#devenv
 
       - name: Cache Cargo artefacts
         uses: actions/cache@v5
