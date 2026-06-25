@@ -29,3 +29,4 @@ venv.bak/
 /contrib/debian/.cargo-cache
 /contrib/macos/.pkg-cache
 /contrib/macos/*.pkg
+contrib/archlinux/vpn-jumphost-*.pkg.tar.zst
