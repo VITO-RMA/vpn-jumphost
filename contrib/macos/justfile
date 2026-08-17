@@ -13,7 +13,7 @@ default:
 # Build the release binary and assemble the .pkg installer.
 build-package:
     mkdir -p {{ pkg_cache }}
-    cd "{{ repo_root }}" && cargo build --release
+    cd "{{ repo_root }}" && cargo build --profile dist
     cd "{{ pkg_cache }}" && bash "{{ macos_dir }}/build-pkg.sh"
 
 # Install the .pkg (requires sudo for /usr/local/bin + /Applications).

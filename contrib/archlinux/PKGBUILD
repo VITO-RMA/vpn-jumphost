@@ -11,7 +11,8 @@ makedepends=('cargo' 'dbus')
 install=vpn-jumphost.install
 backup=()
 # Disable makepkg's C/C++ LTO: Rust crates with bundled native code (e.g. ring/aws-lc-sys)
-# can fail to link under Arch's default lto option even when plain cargo builds work.
+# can fail to link under Arch's default lto option. Cargo's dist profile independently
+# enables Rust thin LTO for the packaged binary.
 options=(!debug !lto)
 source=()
 sha256sums=()
@@ -22,14 +23,14 @@ _reporoot() {
 
 build() {
   cd "$(_reporoot)"
-  cargo build --release --locked
+  cargo build --profile dist --locked
 }
 
 package() {
   cd "$(_reporoot)"
 
   # Binary
-  install -Dm755 target/release/jumphost "$pkgdir/usr/bin/jumphost"
+  install -Dm755 target/dist/jumphost "$pkgdir/usr/bin/jumphost"
 
   # License
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
@@ -41,7 +42,7 @@ package() {
   install -Dm644 docs/config.example.toml "$pkgdir/usr/share/vpn-jumphost/config.example.toml"
 
   # Shell completions
-  local bin="./target/release/jumphost"
+  local bin="./target/dist/jumphost"
   install -d "$pkgdir/usr/share/bash-completion/completions"
   install -d "$pkgdir/usr/share/zsh/site-functions"
   install -d "$pkgdir/usr/share/fish/vendor_completions.d"

@@ -2,7 +2,7 @@
 # build-deb.sh — Stage and assemble the .deb package for vpn-jumphost.
 #
 # Usage:
-#   ./build-deb.sh                        # uses target/release/jumphost
+#   ./build-deb.sh                        # uses target/dist/jumphost
 #   ./build-deb.sh /path/to/jumphost      # use a specific binary
 #
 # Produces: vpn-jumphost_<version>_amd64.deb in the current directory.
@@ -11,10 +11,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-BINARY="${1:-$REPO_ROOT/target/release/jumphost}"
+BINARY="${1:-$REPO_ROOT/target/dist/jumphost}"
 if [ ! -x "$BINARY" ]; then
     echo "error: binary not found at $BINARY" >&2
-    echo "       run 'cargo build --release' first, or pass the path as \$1" >&2
+    echo "       run 'cargo build --profile dist' first, or pass the path as \$1" >&2
     exit 1
 fi
 

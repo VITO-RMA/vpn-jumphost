@@ -15,7 +15,7 @@ cd contrib/archlinux
 makepkg -si
 ```
 
-`makepkg -si` builds the binary with `cargo build --release --locked` and installs the resulting package via `pacman`. Shell completions for bash, zsh, and fish are generated at package time by running `jumphost generate-completions <shell>` and installed to the standard Arch completion directories.
+`makepkg -si` builds the binary with `cargo build --profile dist --locked` and installs the resulting `target/dist/jumphost` via `pacman`. Shell completions for bash, zsh, and fish are generated at package time by running `jumphost generate-completions <shell>` and installed to the standard Arch completion directories.
 
 ## Post-install setup
 

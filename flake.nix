@@ -41,14 +41,8 @@
 
             cargoLock.lockFile = ./Cargo.lock;
 
-            # The repo's .cargo/config.toml assumes mold (Linux) / lld
-            # (macOS) are on PATH for faster linking during development.
-            # In the Nix build sandbox the default linker from stdenv
-            # works fine — remove the overrides so the build doesn't
-            # fail looking for mold/lld.
-            postPatch = ''
-              rm -f .cargo/config.toml
-            '';
+            # Published Nix packages use the thin-LTO distribution profile.
+            cargoBuildType = "dist";
 
             nativeBuildInputs = [
               pkgs.makeWrapper

@@ -2,7 +2,7 @@
 # build-pkg.sh — Assemble a macOS installer package (.pkg) for vpn-jumphost.
 #
 # Usage:
-#   ./build-pkg.sh                   # uses target/release/jumphost
+#   ./build-pkg.sh                   # uses target/dist/jumphost
 #   ./build-pkg.sh /path/to/jumphost # use a specific binary
 #
 # Produces: vpn-jumphost-<version>-<arch>.pkg in the current directory.
@@ -11,10 +11,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-BINARY="${1:-$REPO_ROOT/target/release/jumphost}"
+BINARY="${1:-$REPO_ROOT/target/dist/jumphost}"
 if [ ! -x "$BINARY" ]; then
     echo "error: binary not found at $BINARY" >&2
-    echo "       run 'cargo build --release' first, or pass the path as \$1" >&2
+    echo "       run 'cargo build --profile dist' first, or pass the path as \$1" >&2
     exit 1
 fi
 

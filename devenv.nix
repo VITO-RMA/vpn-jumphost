@@ -30,9 +30,7 @@
     ++ lib.optionals pkgs.stdenv.isLinux [
       pkgs.chromium
       pkgs.dbus
-      pkgs.mold
-    ]
-    ++ lib.optionals pkgs.stdenv.isDarwin [ pkgs.lld ];
+    ];
 
   # `devenv up` starts a single supervised `jumphost` process that owns
   # openconnect+ocproxy, the routing SOCKS5 proxy, and the PAC HTTP server.

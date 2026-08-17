@@ -31,8 +31,8 @@ build-package: build-image
         bash -lc '\
             set -euo pipefail; \
             cd /repo; \
-            cargo build --release --locked --target-dir /target; \
-            bash contrib/debian/build-deb.sh /target/release/jumphost; \
+            cargo build --profile dist --locked --target-dir /target; \
+            bash contrib/debian/build-deb.sh /target/dist/jumphost; \
             cp vpn-jumphost_*_amd64.deb /out/ \
         '
 

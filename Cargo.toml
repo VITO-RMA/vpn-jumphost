@@ -84,6 +84,7 @@ objc2-foundation = {
   ]
 }
 
-[profile.release]
+[profile.dist]
 strip = true
-lto = true
+inherits = "release"
+lto = "thin"

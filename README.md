@@ -18,6 +18,8 @@ devenv shell   # provides openconnect, ocproxy, just, Rust toolchain, chromium (
 just start
 ```
 
+Normal development uses `cargo build --release` (or `just build`), producing `target/release/jumphost` without cross-crate LTO for fast relinks. Distribution packaging uses `cargo build --profile dist`, producing `target/dist/jumphost` with thin LTO. Both profiles use the platform's default linker.
+
 On macOS, Chromium is not available from nixpkgs — install Google Chrome or Chromium system-wide.
 
 ### Arch Linux

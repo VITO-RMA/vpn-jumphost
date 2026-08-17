@@ -45,7 +45,7 @@ jobs:
             deb-ubuntu2604-cargo-
 
       - name: Build (release)
-        run: cargo build --release --locked
+        run: cargo build --profile dist --locked
 
       - name: Build .deb
         run: bash contrib/debian/build-deb.sh
@@ -80,7 +80,7 @@ jobs:
             macos-pkg-cargo-
 
       - name: Build (release)
-        run: cargo build --release --locked
+        run: cargo build --profile dist --locked
 
       - name: Build .pkg
         run: bash contrib/macos/build-pkg.sh
