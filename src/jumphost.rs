@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config;
-use crate::cookie::{self, CookieStatus, FetchOptions};
+use crate::cookie::{self, CookieStatus, FetchOptions, MfaAttemptBudget};
 use crate::pac;
 use crate::routing;
 use crate::sleepwake;
@@ -61,6 +61,10 @@ pub struct Supervisor {
 
     routing_task: Mutex<Option<JoinHandle<()>>>,
     pac_task: Mutex<Option<JoinHandle<()>>>,
+
+    /// Shared across every browser refresh so repeated sessions cannot send
+    /// more than the configured MFA safety limit.
+    mfa_attempt_budget: MfaAttemptBudget,
 }
 
 impl Supervisor {
@@ -74,6 +78,7 @@ impl Supervisor {
             services_shutdown: CancellationToken::new(),
             routing_task: Mutex::new(None),
             pac_task: Mutex::new(None),
+            mfa_attempt_budget: MfaAttemptBudget::default(),
         }
     }
 
@@ -89,16 +94,23 @@ impl Supervisor {
             warn!(path = %cookie_file.display(), error = %e, "could not create cookie parent dir");
         }
 
-        // Step 1: cookie must be present before we ever exec openconnect.
-        if !ensure_valid_cookie(&cookie_file, &stop, self.options.no_headless).await {
-            anyhow::bail!("could not obtain a valid VPN cookie at startup");
-        }
+        // Step 1: try to obtain a usable cookie. If authentication is not
+        // completed, keep the supervisor alive rather than exiting into a
+        // service-manager restart loop that would reset the MFA limit.
+        let cookie_ready = ensure_valid_cookie(&cookie_file, &stop, self.options.no_headless, &self.mfa_attempt_budget).await;
 
-        // Step 2: in-process services.
+        // Step 2: in-process services remain available while authentication
+        // is paused, and the monitor can notice a cookie created manually.
         self.start_services().await?;
 
-        // Step 3: VPN.
-        self.start_vpn().await?;
+        // Step 3: only start the VPN once a usable cookie is available.
+        if cookie_ready {
+            self.start_vpn().await?;
+        } else {
+            warn!(
+                "no valid VPN cookie at startup; supervisor will remain running without a tunnel. Run `jumphost authenticate` when you are present"
+            );
+        }
 
         // Step 4: sleep/wake watcher + monitor loop.
         let watcher = sleepwake::spawn();
@@ -252,10 +264,22 @@ impl Supervisor {
             // VPN liveness — restart from scratch if openconnect died.
             if !self.vpn_alive().await {
                 warn!("VPN process is not running; (re)starting");
-                if ensure_valid_cookie(&config::cookie_file_path(), &stop, self.options.no_headless).await {
+                if ensure_valid_cookie(
+                    &config::cookie_file_path(),
+                    &stop,
+                    self.options.no_headless,
+                    &self.mfa_attempt_budget,
+                )
+                .await
+                {
                     if let Err(e) = self.start_vpn().await {
                         error!(error = %e, "failed to (re)start VPN");
                     }
+                } else if self.mfa_attempt_budget.is_exhausted() {
+                    debug!(
+                        attempts = self.mfa_attempt_budget.attempts(),
+                        "VPN remains stopped; automatic authentication is paused"
+                    );
                 } else {
                     error!("no valid cookie available; will retry on next cycle");
                 }
@@ -274,12 +298,17 @@ impl Supervisor {
 
                 match rc {
                     CookieStatus::Valid => {
+                        let authentication_recovered = self.mfa_attempt_budget.attempts() > 0;
+                        self.mfa_attempt_budget.reset();
                         last_check = now_mono;
                         if force_check {
                             info!(
                                 "cookie still valid; restarting VPN for a fresh tunnel \
                                  after suspend/resume"
                             );
+                            self.restart_vpn().await;
+                        } else if authentication_recovered {
+                            info!("valid cookie supplied after an MFA refresh attempt; restarting VPN");
                             self.restart_vpn().await;
                         } else {
                             debug!("periodic check: cookie still valid");
@@ -292,8 +321,20 @@ impl Supervisor {
                     CookieStatus::Invalid => {
                         last_check = now_mono;
                         info!("periodic check: cookie expired/invalid — refreshing and restarting VPN");
-                        if refresh_cookie(&config::cookie_file_path(), &stop, self.options.no_headless).await {
+                        if refresh_cookie(
+                            &config::cookie_file_path(),
+                            &stop,
+                            self.options.no_headless,
+                            &self.mfa_attempt_budget,
+                        )
+                        .await
+                        {
                             self.restart_vpn().await;
+                        } else if self.mfa_attempt_budget.is_exhausted() {
+                            error!(
+                                attempts = self.mfa_attempt_budget.attempts(),
+                                "cookie refresh stopped after the MFA notification limit; automatic authentication is paused until a valid cookie is supplied or the service is restarted"
+                            );
                         } else {
                             error!("cookie refresh failed; will retry on next cycle");
                         }
@@ -311,9 +352,15 @@ impl Supervisor {
 /// Validate the cookie; refresh if expired/invalid. Returns true iff usable
 /// (a valid cookie, or NetworkError which we treat as "keep going and let
 /// openconnect decide").
-pub async fn ensure_valid_cookie(cookie_file: &std::path::Path, stop: &CancellationToken, no_headless: bool) -> bool {
+pub async fn ensure_valid_cookie(
+    cookie_file: &std::path::Path,
+    stop: &CancellationToken,
+    no_headless: bool,
+    mfa_attempt_budget: &MfaAttemptBudget,
+) -> bool {
     match cookie::validate_file(cookie_file).await {
         CookieStatus::Valid => {
+            mfa_attempt_budget.reset();
             info!("VPN cookie is valid");
             true
         }
@@ -333,7 +380,7 @@ pub async fn ensure_valid_cookie(cookie_file: &std::path::Path, stop: &Cancellat
                     "no cookie file; fetching a fresh one"
                 );
             }
-            refresh_cookie(cookie_file, stop, no_headless).await
+            refresh_cookie(cookie_file, stop, no_headless, mfa_attempt_budget).await
         }
     }
 }
@@ -346,7 +393,11 @@ async fn refresh_cookie(
     cookie_file: &std::path::Path,
     stop: &CancellationToken,
     #[cfg_attr(target_os = "macos", allow(unused))] no_headless: bool,
+    mfa_attempt_budget: &MfaAttemptBudget,
 ) -> bool {
+    if mfa_attempt_budget.is_exhausted() {
+        return false;
+    }
     #[cfg_attr(target_os = "macos", allow(unused))]
     let has_credentials = config::vpn_credentials().is_some();
 
@@ -364,13 +415,23 @@ async fn refresh_cookie(
     let mut opts = FetchOptions::default();
     opts.headless = headless;
     opts.stop = stop.clone();
+    opts.mfa_attempt_budget = mfa_attempt_budget.clone();
     match cookie::fetch(opts).await {
         Ok(_) => {
+            mfa_attempt_budget.reset();
             info!(path = %cookie_file.display(), "cookie refreshed successfully");
             true
         }
         Err(e) => {
-            error!(error = %e, "cookie refresh failed");
+            if mfa_attempt_budget.is_exhausted() {
+                error!(
+                    error = %e,
+                    attempts = mfa_attempt_budget.attempts(),
+                    "cookie refresh reached the MFA notification safety limit; automatic authentication is now paused"
+                );
+            } else {
+                error!(error = %e, "cookie refresh failed");
+            }
             false
         }
     }

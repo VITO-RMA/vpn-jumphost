@@ -99,7 +99,8 @@ sequenceDiagram
 `devenv up` starts **one** process-compose process, `jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run`. The example config sets `serve_pac = true`. The binary itself:
 
 - Validates the cookie file synchronously at startup (reqwest GET of `<vpn_url>/vdesk/vpn/index.php3?outform=xml`, redirects disabled — 2xx = valid, 3xx/404 = invalid, network error = unknown).
-- If invalid or missing, launches Chromium via `chromiumoxide` for an interactive refresh, writes the refreshed cookie to `the cookie file` (mode 600), then proceeds.
+- If invalid or missing, launches Chromium via `chromiumoxide` for a refresh and writes the refreshed cookie to the cookie file (mode 600). Authenticator pushes share a three-attempt budget across all refresh sessions in the supervisor. The MFA method picker is debounced so a lingering page cannot be clicked repeatedly.
+- If refresh fails or three MFA notifications go unanswered, keeps the supervisor, routing proxy, and PAC server alive without a tunnel. Browser authentication remains paused after the third notification; a later `jumphost authenticate` supplies a valid cookie and lets the monitor start the VPN. Staying alive also prevents systemd/launchd failure restarts from resetting the safety limit.
 - Spawns `openconnect` with `tokio::process::Command`, passing `--protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D 1080 -k 60" the configured vpn_url` and writing the cookie to its stdin.
 - Concurrently spawns the routing proxy tokio task on `127.0.0.1:1081` and the PAC HTTP tokio task on `127.0.0.1:8091`.
 - Runs the supervisor monitor loop: periodic cookie revalidation, sleep/wake re-checks, and openconnect restart when the cookie was refreshed.

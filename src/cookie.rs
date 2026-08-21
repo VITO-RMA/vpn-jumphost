@@ -11,13 +11,17 @@
 //!   `scripts/fetch-vpn-cookie.py` + `playwright` flow with a pure-Rust
 //!   implementation that talks the Chrome DevTools Protocol.
 //!   When `headless` is set the browser launches without a visible window.
-//!   If an MFA prompt is detected during a headless session, the browser
-//!   is closed and automatically relaunched in headed mode so the user
-//!   can interact with the authenticator.
+//!   Authenticator number matching remains headless; prompts requiring
+//!   browser input relaunch in headed mode. Automated Authenticator pushes
+//!   are capped at three across all refreshes in one supervisor process.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
@@ -25,6 +29,7 @@ use chromiumoxide::browser::{Browser, BrowserConfig};
 use futures_util::StreamExt;
 use reqwest::StatusCode;
 use reqwest::redirect::Policy as RedirectPolicy;
+use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -124,6 +129,60 @@ pub fn write_cookie_file(path: &Path, value: &str) -> Result<()> {
 
 // ── Cookie fetch (Chromium via CDP) ─────────────────────────────────────
 
+/// Maximum Authenticator push notifications allowed before automated
+/// authentication is paused for the lifetime of the supervisor.
+pub const MAX_MFA_PUSH_ATTEMPTS: usize = 3;
+
+/// A push-attempt budget shared by every cookie refresh in one supervisor.
+///
+/// Sharing this across browser sessions is important: a service manager may
+/// keep the supervisor running indefinitely, and each timed-out browser
+/// session must not receive a fresh set of MFA attempts.
+#[derive(Debug, Clone, Default)]
+pub struct MfaAttemptBudget {
+    attempts: Arc<AtomicUsize>,
+}
+
+impl MfaAttemptBudget {
+    pub fn attempts(&self) -> usize {
+        self.attempts.load(Ordering::Relaxed)
+    }
+
+    pub fn is_exhausted(&self) -> bool {
+        self.attempts() >= MAX_MFA_PUSH_ATTEMPTS
+    }
+
+    fn try_record_attempt(&self) -> std::result::Result<usize, MfaAttemptLimitReached> {
+        self.attempts
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |attempts| {
+                (attempts < MAX_MFA_PUSH_ATTEMPTS).then_some(attempts + 1)
+            })
+            .map(|previous| previous + 1)
+            .map_err(|attempts| MfaAttemptLimitReached { attempts })
+    }
+
+    pub fn reset(&self) {
+        self.attempts.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Returned when another automated Authenticator push would exceed the
+/// process-wide safety limit.
+#[derive(Debug, Error)]
+#[error(
+    "MFA was not completed after {attempts} Authenticator notifications; automatic authentication is paused. Run `jumphost authenticate` when you are present, or restart the service to allow another three attempts"
+)]
+pub struct MfaAttemptLimitReached {
+    attempts: usize,
+}
+
+fn mfa_attempt_limit_error(budget: &MfaAttemptBudget) -> anyhow::Error {
+    MfaAttemptLimitReached {
+        attempts: budget.attempts(),
+    }
+    .into()
+}
+
 /// Options for [`fetch`].
 pub struct FetchOptions {
     /// Persistent user-data-dir (browser profile). When `None`, an
@@ -142,6 +201,9 @@ pub struct FetchOptions {
     /// and the browser is closed. Allows SIGTERM / SIGINT to interrupt
     /// the (potentially long-running) SSO + MFA flow.
     pub stop: CancellationToken,
+    /// Authenticator push-attempt budget. The supervisor supplies one shared
+    /// instance across refreshes so retries cannot exceed the safety limit.
+    pub mfa_attempt_budget: MfaAttemptBudget,
 }
 
 impl Default for FetchOptions {
@@ -152,6 +214,7 @@ impl Default for FetchOptions {
             chromium_path: config::chromium_path(),
             headless: false,
             stop: CancellationToken::new(),
+            mfa_attempt_budget: MfaAttemptBudget::default(),
         }
     }
 }
@@ -177,6 +240,10 @@ enum FetchOutcome {
 /// or other interactive prompt is detected, the headless browser is
 /// closed and relaunched in headed mode.
 pub async fn fetch(options: FetchOptions) -> Result<String> {
+    if options.mfa_attempt_budget.is_exhausted() {
+        return Err(mfa_attempt_limit_error(&options.mfa_attempt_budget));
+    }
+
     let vpn_url = config::cfg_string("VPN_URL", config::DEFAULT_VPN_URL);
     if vpn_url.is_empty() {
         return Err(anyhow!(
@@ -218,7 +285,7 @@ pub async fn fetch(options: FetchOptions) -> Result<String> {
 }
 
 /// Launch Chromium (headed or headless), run the SSO flow, and return
-/// either a captured cookie or an [`FetchOutcome::MfaRequired`] signal.
+/// either a captured cookie or an [`FetchOutcome::InteractionRequired`] signal.
 async fn launch_and_fetch(vpn_url: &str, options: &FetchOptions, headless: bool) -> Result<FetchOutcome> {
     let mut builder = BrowserConfig::builder().window_size(1280, 900);
 
@@ -255,7 +322,15 @@ async fn launch_and_fetch(vpn_url: &str, options: &FetchOptions, headless: bool)
         }
     });
 
-    let result = fetch_inner(&mut browser, vpn_url, options.max_wait, headless, &options.stop).await;
+    let result = fetch_inner(
+        &mut browser,
+        vpn_url,
+        options.max_wait,
+        headless,
+        &options.stop,
+        &options.mfa_attempt_budget,
+    )
+    .await;
 
     // Clean up the browser with a timeout so a broken CDP connection or a
     // slow Chromium shutdown cannot hang the process (e.g. after Ctrl-C).
@@ -280,6 +355,7 @@ async fn fetch_inner(
     max_wait: Duration,
     headless: bool,
     stop: &CancellationToken,
+    mfa_attempt_budget: &MfaAttemptBudget,
 ) -> Result<FetchOutcome> {
     info!(url = %vpn_url, headless, "opening browser for VPN login");
     let page = browser
@@ -299,6 +375,7 @@ async fn fetch_inner(
     let deadline = Instant::now() + max_wait;
     let mut warned_invalid = false;
     let mut notified_number: Option<String> = None;
+    let mut mfa_attempt_state = MfaAttemptState::Idle;
     let mut mfa_notification = NotificationGuard::new();
     let mut stuck_url_count: u32 = 0;
     let mut last_url = String::new();
@@ -337,14 +414,12 @@ async fn fetch_inner(
             }
         }
 
-        // In headless mode, handle MFA screens:
-        // 1. Method-picker ("Verify your identity") — click the
-        //    Authenticator option to trigger the push notification.
-        // 2. Number-match screen — extract the number and show it as
-        //    a desktop notification; keep polling headlessly.
-        // 3. Interactive prompt (TOTP code entry, etc.) — bail out so
-        //    the caller relaunches headed.
-        if headless {
+        // Track MFA pushes in both headed and headless sessions so the
+        // process-wide safety limit also covers visible-browser refreshes.
+        // In headless mode we additionally select the Authenticator method,
+        // display the number, and fall back to a headed browser for prompts
+        // that require browser input.
+        {
             // Detect stuck transitional pages (e.g. DeviceAuthTls/reprocess)
             // that auto-redirect in headed mode but hang in headless.
             let current_url = page
@@ -359,7 +434,7 @@ async fn fetch_inner(
                 stuck_url_count = 0;
                 last_url = current_url.clone();
             }
-            if stuck_url_count >= 5 && current_url.contains("/DeviceAuthTls") {
+            if headless && stuck_url_count >= 5 && current_url.contains("/DeviceAuthTls") {
                 warn!(url = %current_url, "stuck on device-auth page; reloading VPN URL to retry");
                 let _ = page.evaluate(format!("location.href = {:?}", vpn_url)).await;
                 stuck_url_count = 0;
@@ -369,16 +444,41 @@ async fn fetch_inner(
 
             match detect_mfa_phase(&page).await {
                 MfaPhase::None => {}
-                MfaPhase::MethodPicker => {
-                    info!("MFA method-picker detected — selecting Authenticator app");
-                    click_authenticator_option(&page).await;
-                    // Give the page a moment to transition to the
-                    // approval screen before the next poll.
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                MfaPhase::MethodPicker if headless => {
+                    // A picker can remain in the DOM for several polls after
+                    // it is clicked. Only click once until a number screen has
+                    // appeared; otherwise one login can generate rapid pushes.
+                    if matches!(&mfa_attempt_state, MfaAttemptState::Idle | MfaAttemptState::Number(_)) {
+                        if mfa_attempt_budget.is_exhausted() {
+                            return Err(mfa_attempt_limit_error(mfa_attempt_budget));
+                        }
+                        info!("MFA method-picker detected — selecting Authenticator app");
+                        if click_authenticator_option(&page).await {
+                            let attempt = mfa_attempt_budget.try_record_attempt()?;
+                            info!(attempt, max_attempts = MAX_MFA_PUSH_ATTEMPTS, "triggered Authenticator push");
+                            mfa_attempt_state = MfaAttemptState::Triggered;
+                        }
+                        // Give the page a moment to transition to the
+                        // approval screen before the next poll.
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
                 }
+                MfaPhase::MethodPicker => {}
                 MfaPhase::NumberMatch(ref num) => {
-                    // Show the number via desktop notification (once).
-                    if notified_number.as_deref() != Some(num) {
+                    let is_new_attempt = match &mfa_attempt_state {
+                        MfaAttemptState::Idle => true,
+                        MfaAttemptState::Triggered => false,
+                        MfaAttemptState::Number(previous) => previous != num,
+                    };
+                    if is_new_attempt {
+                        let attempt = mfa_attempt_budget.try_record_attempt()?;
+                        info!(attempt, max_attempts = MAX_MFA_PUSH_ATTEMPTS, "detected Authenticator push");
+                    }
+                    mfa_attempt_state = MfaAttemptState::Number(num.clone());
+
+                    // Show the number via desktop notification once in
+                    // headless mode. A headed browser already displays it.
+                    if headless && notified_number.as_deref() != Some(num) {
                         eprintln!();
                         eprintln!("  ╔═══════════════════════════════════════╗");
                         eprintln!("  ║  MFA: approve this number  ->  {num:>3}    ║");
@@ -388,10 +488,14 @@ async fn fetch_inner(
                         mfa_notification.set(send_mfa_notification(num).await);
                         notified_number = Some(num.clone());
                     }
-                    // Stay headless — keep polling for the cookie.
                 }
                 MfaPhase::ApprovalPending => {
-                    if notified_number.is_none() {
+                    if matches!(&mfa_attempt_state, MfaAttemptState::Idle) {
+                        let attempt = mfa_attempt_budget.try_record_attempt()?;
+                        info!(attempt, max_attempts = MAX_MFA_PUSH_ATTEMPTS, "detected pending Authenticator push");
+                        mfa_attempt_state = MfaAttemptState::Triggered;
+                    }
+                    if headless && notified_number.is_none() {
                         // Dump visible text once so we can find the right selector.
                         let dump = page
                             .evaluate("(document.body && document.body.innerText || '').substring(0, 500)")
@@ -402,10 +506,11 @@ async fn fetch_inner(
                         warn!(page_text = %dump, "MFA approval screen detected but could not extract the number — check your phone");
                     }
                 }
-                MfaPhase::InteractivePrompt => {
+                MfaPhase::InteractivePrompt if headless => {
                     info!("interactive MFA prompt detected (e.g. TOTP) — need visible browser");
                     return Ok(FetchOutcome::InteractionRequired);
                 }
+                MfaPhase::InteractivePrompt => {}
             }
         }
 
@@ -423,6 +528,9 @@ async fn fetch_inner(
         }
 
         if Instant::now() >= deadline {
+            if mfa_attempt_budget.is_exhausted() {
+                return Err(mfa_attempt_limit_error(mfa_attempt_budget));
+            }
             return Err(anyhow!("did not find a valid {} cookie within {:?}", config::COOKIE_NAME, max_wait));
         }
         tokio::select! {
@@ -433,6 +541,14 @@ async fn fetch_inner(
             _ = tokio::time::sleep(Duration::from_secs(1)) => {}
         }
     }
+}
+
+/// State used to avoid counting the number screen twice after this process
+/// triggered the corresponding push from the method picker.
+enum MfaAttemptState {
+    Idle,
+    Triggered,
+    Number(String),
 }
 
 /// Which MFA phase the page is currently showing.
@@ -551,7 +667,7 @@ async fn detect_mfa_phase(page: &chromiumoxide::Page) -> MfaPhase {
 /// Click the "Approve a request on my Microsoft Authenticator app" option
 /// on the MFA method-picker page. This triggers the push notification so
 /// the approval screen (with the number to match) appears next.
-async fn click_authenticator_option(page: &chromiumoxide::Page) {
+async fn click_authenticator_option(page: &chromiumoxide::Page) -> bool {
     let script = r#"(() => {
         // The method-picker renders each option as a clickable div. Find
         // the one whose text mentions "Microsoft Authenticator".
@@ -574,8 +690,19 @@ async fn click_authenticator_option(page: &chromiumoxide::Page) {
     })()"#;
 
     match page.evaluate(script).await {
-        Ok(_) => debug!("clicked Authenticator option on MFA method picker"),
-        Err(e) => debug!(error = %e, "could not click Authenticator option"),
+        Ok(value) => {
+            let clicked = value.into_value::<bool>().unwrap_or(false);
+            if clicked {
+                debug!("clicked Authenticator option on MFA method picker");
+            } else {
+                debug!("Authenticator option was not clickable on MFA method picker");
+            }
+            clicked
+        }
+        Err(e) => {
+            debug!(error = %e, "could not click Authenticator option");
+            false
+        }
     }
 }
 
@@ -715,8 +842,36 @@ async fn current_mrhsession(browser: &Browser) -> Option<String> {
     }
 }
 
-#[allow(dead_code)]
-fn _unused() {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mfa_attempt_budget_allows_exactly_three_attempts() {
+        let budget = MfaAttemptBudget::default();
+
+        for expected in 1..=MAX_MFA_PUSH_ATTEMPTS {
+            assert_eq!(budget.try_record_attempt().unwrap(), expected);
+        }
+
+        assert!(budget.is_exhausted());
+        assert!(budget.try_record_attempt().is_err());
+        assert_eq!(budget.attempts(), MAX_MFA_PUSH_ATTEMPTS);
+    }
+
+    #[test]
+    fn mfa_attempt_budget_is_shared_and_can_be_reset() {
+        let budget = MfaAttemptBudget::default();
+        let shared = budget.clone();
+
+        budget.try_record_attempt().unwrap();
+        assert_eq!(shared.attempts(), 1);
+
+        shared.reset();
+        assert_eq!(budget.attempts(), 0);
+        assert!(!budget.is_exhausted());
+    }
+}
 
 /// Check the "Don't ask again for 14 days" checkbox on the Azure AD MFA
 /// approval screen, if it is visible and not yet checked.

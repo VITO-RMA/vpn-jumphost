@@ -9,6 +9,8 @@
 #   - serves the PAC file on 127.0.0.1:8091 when serve_pac = true in config.toml,
 #   - re-checks the cookie at the configured check_interval (default 300 s),
 #   - restarts openconnect if the cookie was refreshed,
+#   - limits automated Authenticator pushes to three; after that it stays
+#     running without a tunnel until a valid cookie is supplied manually,
 #   - detects laptop sleep/wake (logind PrepareForSleep signal on Linux,
 #     wall-clock fallback elsewhere) and re-validates immediately on wake.
 #
