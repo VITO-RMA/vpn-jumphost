@@ -53,7 +53,7 @@ Do **not** set a **global** HTTP/SOCKS proxy to `127.0.0.1:1080` for all traffic
 
 ### Domain defaults and customisation
 
-Domain lists live in `[domains]` in `config.toml` and are shared with the routing proxy — see [`docs/config.example.toml`](config.example.toml).
+Domain lists live in `[domains]` in `config.toml` and are shared with the routing proxy — see [`docs/config.example.toml`](config.example.toml). They control normal client traffic only. The Chromium instance launched by `jumphost` for VPN authentication uses `--no-proxy-server`, so the VPN portal and external SSO/MFA hosts always connect directly even if a matching hostname is accidentally included in `[domains].proxy`.
 
 | Key | VITO default | Purpose |
 |---|---|---|

@@ -78,6 +78,7 @@ pub async fn validate_cookie(cookie: &str) -> CookieStatus {
     let probe_url = format!("{}{}", vpn_url.trim_end_matches('/'), config::COOKIE_PROBE_PATH);
 
     let client = match reqwest::Client::builder()
+        .no_proxy()
         .redirect(RedirectPolicy::none())
         .timeout(Duration::from_secs(10))
         .user_agent("vpn-jumphost-cookie-check")
@@ -287,7 +288,10 @@ pub async fn fetch(options: FetchOptions) -> Result<String> {
 /// Launch Chromium (headed or headless), run the SSO flow, and return
 /// either a captured cookie or an [`FetchOutcome::InteractionRequired`] signal.
 async fn launch_and_fetch(vpn_url: &str, options: &FetchOptions, headless: bool) -> Result<FetchOutcome> {
-    let mut builder = BrowserConfig::builder().window_size(1280, 900);
+    // Authentication must not depend on a tunnel that cannot start until this
+    // flow produces a cookie. Override desktop/PAC/environment proxy settings
+    // for the dedicated Chromium process, regardless of domain routing rules.
+    let mut builder = BrowserConfig::builder().window_size(1280, 900).arg("--no-proxy-server");
 
     if !headless {
         builder = builder.with_head();
