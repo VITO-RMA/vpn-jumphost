@@ -51,7 +51,7 @@ jobs:
         run: bash contrib/debian/build-deb.sh
 
       - name: Upload .deb artefact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: vpn-jumphost-deb
           path: "vpn-jumphost_*_amd64.deb"
@@ -86,7 +86,7 @@ jobs:
         run: bash contrib/macos/build-pkg.sh
 
       - name: Upload .pkg artefact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: vpn-jumphost-macos-pkg
           path: "vpn-jumphost-*.pkg"
