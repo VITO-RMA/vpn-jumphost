@@ -79,7 +79,7 @@ Or, if `VPN_USERNAME` and `VPN_PASSWORD` are already set in the environment:
 jumphost authenticate --from-env
 ```
 
-This prompts for your username and password and saves them in the platform's native credential store (macOS Keychain / Linux Secret Service). The browser-based cookie capture will use these to pre-fill the SSO form — you only need to confirm the MFA prompt. The dedicated authentication browser always connects directly and ignores system PAC/proxy settings and `[domains]` routing rules, so authentication never depends on an existing VPN tunnel.
+This prompts for your username and password and saves them in the platform's native credential store (macOS Keychain / Linux Secret Service). The browser-based cookie capture will use these to pre-fill the SSO form. For Microsoft Authenticator number matching, approve the number shown in both the shell output and the desktop notification. The dedicated authentication browser always connects directly and ignores system PAC/proxy settings and `[domains]` routing rules, so authentication never depends on an existing VPN tunnel.
 
 Automated authentication sends at most three Microsoft Authenticator push notifications during one `jumphost run` process. If none is completed, automatic authentication pauses and the supervisor remains running without a VPN tunnel so systemd/launchd cannot restart it into another notification loop. When you are present, run `jumphost authenticate`; the supervisor detects the new valid cookie and starts the tunnel. Explicitly restarting the service also resets the three-attempt allowance.
 

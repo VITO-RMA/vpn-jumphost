@@ -713,9 +713,8 @@ async fn click_authenticator_option(page: &chromiumoxide::Page) -> bool {
 /// Handle type for a revocable desktop notification.
 ///
 /// On Linux, `notify_rust::NotificationHandle::close()` lets us revoke
-/// the notification over D-Bus.  On macOS the handle is a no-op wrapper
-/// (mac-notification-sys doesn't support programmatic dismissal), but
-/// we still get a uniform API surface.
+/// the notification over D-Bus. On macOS the legacy notify-rust backend
+/// delivers only when the handle is dropped, so we must not retain it.
 type NotifHandle = notify_rust::NotificationHandle;
 
 /// Guard that closes a desktop notification when dropped or explicitly
@@ -736,25 +735,27 @@ impl NotificationGuard {
     }
 
     /// Explicitly close the notification (idempotent).
+    #[cfg(target_os = "linux")]
     fn close(&mut self) {
         if let Some(handle) = self.0.take() {
             // On Linux, `NotificationHandle::close()` sends a D-Bus
-            // `CloseNotification` message.  It uses zbus's blocking
+            // `CloseNotification` message. It uses zbus's blocking
             // `block_on` internally, which panics when called from
-            // within a tokio runtime — spawn a short-lived thread.
-            // On macOS, the handle has no `close()` method (the
-            // mac-notification-sys backend doesn't support it), so
-            // we just drop it.
+            // within a tokio runtime, so spawn a short-lived thread.
             #[cfg(target_os = "linux")]
             {
                 let _ = std::thread::Builder::new().name("close-mfa-notif".into()).spawn(move || {
                     handle.close();
                 });
             }
-            #[cfg(not(target_os = "linux"))]
-            let _ = handle;
             info!("closed MFA desktop notification");
         }
+    }
+
+    /// Explicitly close the notification (idempotent).
+    #[cfg(not(target_os = "linux"))]
+    fn close(&mut self) {
+        self.0 = None;
     }
 }
 
@@ -770,8 +771,7 @@ impl Drop for NotificationGuard {
 /// Uses [`notify_rust`] on all platforms (D-Bus on Linux,
 /// `mac-notification-sys` on macOS).  Returns a [`NotifHandle`] so the
 /// caller can close (revoke) the notification once login succeeds
-/// (revocation is only effective on Linux; macOS drops the handle as a
-/// no-op).
+/// (revocation is only effective on Linux).
 ///
 /// Failures are logged but not fatal; the number is also emitted via
 /// `tracing::info` for journal/log consumers.
@@ -780,24 +780,29 @@ async fn send_mfa_notification(number: &str) -> Option<NotifHandle> {
     tokio::task::spawn_blocking(move || {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let mut notification = notify_rust::Notification::new();
-            notification
-                .summary("VPN sign-in: approve this number")
-                .body(&number)
-                .icon("dialog-password")
-                .appname("jumphost");
-
-            // Urgency hints are a freedesktop.org concept; they are
-            // silently ignored on macOS.
-            #[cfg(target_os = "linux")]
-            {
-                notification.urgency(notify_rust::Urgency::Critical);
-            }
+            let notification = build_mfa_notification(&number);
 
             match notification.show() {
                 Ok(handle) => {
-                    info!(number = %number, "sent MFA desktop notification");
-                    Some(handle)
+                    // notify-rust's legacy macOS backend is lazy: `show()`
+                    // returns a handle and the handle's Drop implementation
+                    // performs the actual delivery. Holding that handle for
+                    // later "close" support delays the MFA banner until after
+                    // authentication, leaving the user to see an older
+                    // Notification Center item. Deliver immediately on macOS;
+                    // there is no programmatic close support there anyway.
+                    #[cfg(target_os = "macos")]
+                    {
+                        drop(handle);
+                        info!(number = %number, "sent MFA desktop notification");
+                        None
+                    }
+
+                    #[cfg(target_os = "linux")]
+                    {
+                        info!(number = %number, "sent MFA desktop notification");
+                        Some(handle)
+                    }
                 }
                 Err(e) => {
                     warn!(
@@ -822,6 +827,22 @@ async fn send_mfa_notification(number: &str) -> Option<NotifHandle> {
     .await
     .ok()
     .flatten()
+}
+
+fn build_mfa_notification(number: &str) -> notify_rust::Notification {
+    let mut notification = notify_rust::Notification::new();
+    notification
+        .summary(&format!("VPN sign-in code {number}"))
+        .body(&format!("Approve {number} in Microsoft Authenticator."))
+        .icon("dialog-password")
+        .appname("jumphost");
+
+    #[cfg(target_os = "linux")]
+    {
+        notification.urgency(notify_rust::Urgency::Critical);
+    }
+
+    notification
 }
 
 /// Read `MRHSession` from the browser-wide cookie jar (covers all open
@@ -849,6 +870,26 @@ async fn current_mrhsession(browser: &Browser) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mfa_notification_payload_contains_the_current_number() {
+        let notification = build_mfa_notification("24");
+
+        assert_eq!(notification.summary, "VPN sign-in code 24");
+        assert_eq!(notification.body, "Approve 24 in Microsoft Authenticator.");
+        assert_eq!(notification.appname, "jumphost");
+    }
+
+    #[test]
+    fn mfa_notification_payload_does_not_reuse_a_previous_number() {
+        let first = build_mfa_notification("24");
+        let second = build_mfa_notification("91");
+
+        assert!(first.summary.contains("24"));
+        assert!(!first.summary.contains("91"));
+        assert!(second.summary.contains("91"));
+        assert!(!second.summary.contains("24"));
+    }
 
     #[test]
     fn mfa_attempt_budget_allows_exactly_three_attempts() {
