@@ -187,4 +187,4 @@ For local preflight, use the Docker harness above; it additionally verifies inst
 | [`contrib/debian/postinst`](../contrib/debian/postinst) | Post-install script (setup instructions) |
 | [`contrib/debian/prerm`](../contrib/debian/prerm) | Pre-remove script (service reminder) |
 | [`contrib/debian/postrm`](../contrib/debian/postrm) | Post-remove script (leftover files note) |
-| [`.github/workflows/deb.yml`](../.github/workflows/deb.yml) | GitHub Actions workflow (builds `.deb` on Ubuntu 26.04) |
+| [`.github/workflows/release.yaml`](../.github/workflows/release.yaml) | GitHub Actions workflow (builds `.deb` on Ubuntu 26.04) |
