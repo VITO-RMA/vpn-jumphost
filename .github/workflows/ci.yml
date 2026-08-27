@@ -14,10 +14,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
 
-    defaults:
-      run:
-        shell: devenv shell bash -- -e {0}
-
     steps:
       - uses: actions/checkout@v6
       - uses: cachix/install-nix-action@v31
@@ -39,8 +35,5 @@ jobs:
           restore-keys: |
             cargo-${{ matrix.os }}-
 
-      - name: Build (release)
-        run: cargo build --release
-
-      - name: Test (release)
-        run: cargo test --release
+      - name: Run CI checks
+        run: devenv tasks run --no-tui ci:checks

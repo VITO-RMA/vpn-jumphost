@@ -252,6 +252,10 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just current-version` | Prints the latest semver release tag from git |
 | `just release major\|minor\|patch` | Validates level / main / clean state, computes the next semver tag, then tags and pushes `main` + tag |
 
+### 7a. Continuous Integration
+
+The GitHub Actions workflow in `.github/workflows/ci.yml` builds and tests on `ubuntu-latest` and `macos-latest`. It installs the pinned `devenv` package using a plain Bash shell, then runs `devenv tasks run --no-tui ci:checks`. The installation step must not use a `devenv` shell wrapper because `devenv` is not available until installation completes. The `ci:checks` task runs the release Cargo build followed by the release test suite.
+
 ### 8. Keyring Credential Storage (`jumphost authenticate`)
 
 **What it does:** Stores VPN credentials (username and password) in the OS keyring so they can be used for automated cookie refresh without environment variables or plaintext config files.

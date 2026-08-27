@@ -16,6 +16,11 @@
 
   languages.rust.enable = true;
 
+  tasks."ci:checks".exec = ''
+    cargo build --release
+    cargo test --release
+  '';
+
   packages =
     with pkgs;
     [
