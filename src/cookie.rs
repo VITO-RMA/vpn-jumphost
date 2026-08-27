@@ -973,14 +973,14 @@ async fn try_microsoft_login(page: &chromiumoxide::Page, username: &str, passwor
     // Username field — only submit if we actually typed the username.
     // Return early so the page has time to navigate to the password
     // step before the next poll iteration.
-    if matches!(type_into(page, "#i0116", username, false).await, Ok(true)) {
+    if type_into(page, "#i0116", username, false).await.is_ok() {
         debug!("typed username into login form");
         let _ = click_once(page, "#idSIButton9").await;
         return;
     }
 
     // Password field — only reached once the username step is done.
-    if matches!(type_into(page, "#i0118", password, true).await, Ok(true)) {
+    if type_into(page, "#i0118", password, true).await.is_ok() {
         debug!("typed password into login form");
         let _ = click_once(page, "#idSIButton9").await;
     }
@@ -1076,28 +1076,13 @@ fn serde_json_encode(s: &str) -> String {
 }
 
 /// Type `value` into the first element matching `selector` if visible.
-/// Returns whether the field was changed. An already-correct value is left
-/// alone so the polling loop cannot submit the same login step repeatedly.
 /// When `clear_first` is true, the field is emptied before typing.
-async fn type_into(page: &chromiumoxide::Page, selector: &str, value: &str, clear_first: bool) -> Result<bool> {
+async fn type_into(page: &chromiumoxide::Page, selector: &str, value: &str, clear_first: bool) -> Result<()> {
     let element = page
         .find_element(selector)
         .await
         .map_err(|e| anyhow!("selector {selector} not found: {e}"))?;
-
-    let current = page
-        .evaluate(format!(
-            "(() => {{ const e = document.querySelector({selector:?}); return e ? e.value : null; }})()"
-        ))
-        .await
-        .ok()
-        .and_then(|result| result.into_value::<Option<String>>().ok())
-        .flatten();
-    if current.as_deref() == Some(value) {
-        return Ok(false);
-    }
-
-    if clear_first || current.as_deref().is_some_and(|v| !v.is_empty()) {
+    if clear_first {
         let _ = element.click().await;
         // Select-all + delete is the most reliable cross-browser clear.
         let _ = page
@@ -1109,7 +1094,7 @@ async fn type_into(page: &chromiumoxide::Page, selector: &str, value: &str, clea
         .type_str(value)
         .await
         .map_err(|e| anyhow!("typing into {selector} failed: {e}"))?;
-    Ok(true)
+    Ok(())
 }
 
 async fn click_once(page: &chromiumoxide::Page, selector: &str) -> Result<()> {
