@@ -24,7 +24,7 @@
 
           jumphost = pkgs.rustPlatform.buildRustPackage {
             pname = "vpn-jumphost";
-            version = "0.3.0";
+            version = "0.4.0";
 
             src =
               let

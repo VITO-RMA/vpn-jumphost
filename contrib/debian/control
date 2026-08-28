@@ -1,5 +1,5 @@
 Package: vpn-jumphost
-Version: 0.3.0
+Version: 0.4.0
 Architecture: amd64
 Maintainer: VPN Jumphost contributors <vpn-jumphost@users.noreply.github.com>
 Description: VPN jumphost: OpenConnect+ocproxy supervisor with routing SOCKS5 proxy, PAC server, and cookie management
