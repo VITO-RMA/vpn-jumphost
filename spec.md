@@ -18,7 +18,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 
 | Component | Role |
 |---|---|
-| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI: `run`, `fetch-cookie`, `validate-cookie`, `generate-pac`, `authenticate`, `doctor`, `test-tunnel`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
+| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI including `run`, `refresh_token`, `validate-cookie`, `generate-pac`, `authenticate`, `deauthenticate`, `doctor`, and `test-tunnel`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
 | **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
 | **`src/routing.rs`** | Routing proxy — SOCKS5 + HTTP CONNECT (ported from the previous standalone `routing-proxy/` crate, extended with HTTP CONNECT auto-detection). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
@@ -235,6 +235,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just test` | Runs `cargo test --release`. |
 | `just bootstrap [-d]` | Runs `scripts/jumphost-wizard.sh`; pass `-d` to start the devenv processes detached |
 | `just fetch-cookie` | `./target/release/jumphost fetch-cookie` — fetches the MRHSession cookie via Chromium and writes it to `$VPN_COOKIE_FILE` |
+| `just refresh_token` | `./target/release/jumphost refresh_token` — forces a fresh MRHSession cookie fetch using already-configured credentials; never prompts for credentials |
 | `just validate-cookie` | `./target/release/jumphost validate-cookie` — probes the VPN endpoint with the current cookie. Exit 0 = valid, 1 = invalid, 2 = network error. |
 | `just doctor` | `./target/release/jumphost doctor` — health checks for config, cookie, routing proxy, VPN tunnel, PAC server (if enabled), and proxychains setup. Exit 0 when all critical checks pass. |
 | `just test-tunnel [ARGS]` | `./target/release/jumphost test-tunnel` — SOCKS5 CONNECT probes through the routing proxy. Requires `jumphost run` to be up and `[probe].hosts` in config (or `-H host[:port]`). Pass `--retries N` to poll until the tunnel is ready. |
@@ -266,6 +267,7 @@ The GitHub Actions workflow in `.github/workflows/ci.yml` builds and tests on `u
   - **Linux:** `dbus-secret-service-keyring-store` — stores credentials via the Secret Service API (GNOME Keyring / KWallet).
 - `jumphost authenticate` prompts interactively for username and password, then writes them to the keyring.
 - `jumphost authenticate --from-env` reads `VPN_USERNAME` and `VPN_PASSWORD` from the environment (both must be non-empty), stores them in the keyring, and skips the interactive prompt.
+- `jumphost refresh_token` requires a complete credential source resolved through the normal precedence (environment, keyring, then configured secret files), then forces a fresh cookie fetch without prompting or modifying stored credentials. If no credentials are available, it exits unsuccessfully and directs the user to `jumphost authenticate`.
 - `jumphost deauthenticate` removes stored credentials from the keyring and deletes the cookie file and browser profile.
 - The keyring is checked as a credential source between env vars and the config file:
   1. `VPN_USERNAME` / `VPN_PASSWORD` env vars (highest priority)
@@ -274,7 +276,8 @@ The GitHub Actions workflow in `.github/workflows/ci.yml` builds and tests on `u
 
 **CLI flags:**
 - `--from-env` — read credentials from `VPN_USERNAME` and `VPN_PASSWORD` instead of prompting.
-- `--no-headless` — open a visible browser window for the post-store cookie fetch (default is headless when credentials are available).
+- `authenticate --no-headless` — open a visible browser window for the post-store cookie fetch (default is headless when credentials are available).
+- `refresh_token --no-headless` — open a visible browser window while forcing a cookie refresh; credential entry is still never prompted.
 
 **Standalone usage:**
 ```bash
@@ -283,6 +286,9 @@ jumphost authenticate
 
 # Store credentials from environment variables
 VPN_USERNAME=you@company.com VPN_PASSWORD=secret jumphost authenticate --from-env
+
+# Force a fresh cookie using the credentials above
+jumphost refresh_token
 
 # Remove stored credentials and cookie
 jumphost deauthenticate
@@ -523,6 +529,8 @@ CLI overview: `-c/--config FILE`, `--no-headless`, `-v/--verbose`. The `-c` and 
 `fetch-cookie` CLI: `--headless`.
 
 `authenticate` CLI: `--from-env` (read `VPN_USERNAME` / `VPN_PASSWORD` instead of prompting), `--no-headless`.
+
+`refresh_token` CLI: `--no-headless`. It requires already-configured credentials and never prompts for them.
 
 `test-tunnel` CLI: `-H/--host HOST[:PORT]` (repeatable), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all`, `-q/--quiet`.
 

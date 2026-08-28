@@ -42,8 +42,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Store VPN credentials in the OS keyring and validate vpn login
+    /// Store VPN credentials in the OS keyring and fetch a fresh VPN token
     Authenticate(AuthenticateArgs),
+    /// Fetch a fresh VPN token using credentials that are already configured
+    #[command(name = "refresh_token")]
+    RefreshToken(RefreshTokenArgs),
     /// Remove stored credentials and delete the vpn cookie
     Deauthenticate,
     /// Run the VPN jumphost
@@ -83,6 +86,13 @@ struct AuthenticateArgs {
     /// headless mode when credentials are configured and shows an MFA
     /// desktop notification. This flag forces it to always open a visible
     /// browser window instead.
+    #[arg(long)]
+    no_headless: bool,
+}
+
+#[derive(Args, Debug, Default, Clone)]
+struct RefreshTokenArgs {
+    /// Open a visible browser window instead of fetching headlessly.
     #[arg(long)]
     no_headless: bool,
 }
@@ -132,6 +142,7 @@ async fn main() -> ExitCode {
         Command::ValidateCookie => cmd_validate().await,
         Command::GeneratePac(args) => cmd_generate_pac(args).await,
         Command::Authenticate(args) => cmd_authenticate(args).await,
+        Command::RefreshToken(args) => cmd_refresh_token(args).await,
         Command::Deauthenticate => cmd_deauthenticate().await,
         Command::TestNotification => cmd_test_notification().await,
         Command::GenerateCompletions(args) => cmd_generate_completions(args),
@@ -283,11 +294,24 @@ async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
     }
     eprintln!("credentials stored in OS keyring");
 
+    fetch_fresh_cookie(args.no_headless).await
+}
+
+async fn cmd_refresh_token(args: RefreshTokenArgs) -> ExitCode {
+    if config::vpn_credentials().is_none() {
+        error!("no VPN credentials are configured; run `jumphost authenticate` first");
+        return ExitCode::FAILURE;
+    }
+
+    fetch_fresh_cookie(args.no_headless).await
+}
+
+async fn fetch_fresh_cookie(no_headless: bool) -> ExitCode {
     let stop = CancellationToken::new();
     install_signal_handlers(stop.clone());
 
     let opts = FetchOptions {
-        headless: !args.no_headless,
+        headless: !no_headless,
         stop,
         ..FetchOptions::default()
     };
@@ -362,4 +386,18 @@ fn spawn_signal(stop: CancellationToken, kind: SignalKind, name: &'static str) {
             std::process::exit(1);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_refresh_token_command() {
+        let cli = Cli::try_parse_from(["jumphost", "refresh_token", "--no-headless"]).unwrap();
+        match cli.command {
+            Command::RefreshToken(args) => assert!(args.no_headless),
+            command => panic!("expected refresh_token command, got {command:?}"),
+        }
+    }
 }

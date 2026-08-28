@@ -21,6 +21,10 @@ build:
 fetch-cookie:
     @cargo run --release --quiet -- fetch-cookie
 
+# Force a fresh VPN cookie fetch using already-configured credentials.
+refresh_token:
+    @cargo run --release --quiet -- refresh_token
+
 # Validate the current VPN cookie against the endpoint
 # (exit 0 = valid, 1 = invalid, 2 = network error).
 validate-cookie:
