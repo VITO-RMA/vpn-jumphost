@@ -22,7 +22,7 @@
 #   systemctl --user enable --now vpn-jumphost.service
 #
 # Logs:
-#   journalctl --user -u vpn-jumphost.service -f
+#   jumphost logs -f
 #
 # Notes:
 #   - Cookie auto-refresh drives Chromium via CDP. When VPN_USERNAME and

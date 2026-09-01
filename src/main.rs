@@ -5,6 +5,7 @@ mod credential_store;
 mod doctor;
 mod jumphost;
 mod logging;
+mod logs;
 mod pac;
 mod probe;
 mod routing;
@@ -61,6 +62,8 @@ enum Command {
     GenerateCompletions(GenerateCompletionsArgs),
     /// Run health checks for config, cookie, listeners, and proxychains
     Doctor,
+    /// Show jumphost logs from systemd, detached nohup, or macOS launchd
+    Logs(logs::LogsArgs),
     /// Probe end-to-end connectivity through the routing proxy (SOCKS5 CONNECT)
     TestTunnel(test_tunnel::TestTunnelArgs),
 }
@@ -125,14 +128,16 @@ async fn main() -> ExitCode {
         config_file::set_path(path.clone());
     }
 
-    logging::init(cli.verbose || config_file::get().verbose.unwrap_or(false));
+    let is_logs_command = matches!(cli.command, Command::Logs(_));
+    let verbose = cli.verbose || (!is_logs_command && config_file::get().verbose.unwrap_or(false));
+    logging::init(verbose);
 
     // On macOS, CLI binaries have no bundle identifier, so
     // NSUserNotificationCenter silently drops notifications.  Register
     // one so MFA desktop notifications actually appear.
     #[cfg(target_os = "macos")]
     {
-        if let Err(e) = notify_rust::set_application("sas.vpn-jumphost") {
+        if !is_logs_command && let Err(e) = notify_rust::set_application("sas.vpn-jumphost") {
             warn!(error = %e, "could not set macOS notification bundle id");
         }
     }
@@ -147,6 +152,7 @@ async fn main() -> ExitCode {
         Command::TestNotification => cmd_test_notification().await,
         Command::GenerateCompletions(args) => cmd_generate_completions(args),
         Command::Doctor => doctor::run().await,
+        Command::Logs(args) => logs::run(args),
         Command::TestTunnel(args) => test_tunnel::run(args).await,
     }
 }
@@ -398,6 +404,18 @@ mod tests {
         match cli.command {
             Command::RefreshToken(args) => assert!(args.no_headless),
             command => panic!("expected refresh_token command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_logs_command() {
+        let cli = Cli::try_parse_from(["jumphost", "logs", "--follow", "--lines", "25"]).unwrap();
+        match cli.command {
+            Command::Logs(args) => {
+                assert!(args.follow);
+                assert_eq!(args.lines, 25);
+            }
+            command => panic!("expected logs command, got {command:?}"),
         }
     }
 }

@@ -34,6 +34,10 @@ validate-cookie:
 doctor:
     @cargo run --release --quiet -- doctor
 
+# Show jumphost logs. Pass e.g. `-- -f` to follow.
+logs *ARGS: build
+    @{{ BIN }} logs {{ ARGS }}
+
 # Regenerate proxy.pac with the configured domain lists.
 pac-gen:
     @cargo run --release --quiet -- -c docs/config.example.toml generate-pac ./proxy.pac

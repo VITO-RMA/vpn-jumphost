@@ -18,7 +18,7 @@ The project is a single Rust crate (`Cargo.toml` at the repo root) that builds o
 
 | Component | Role |
 |---|---|
-| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI including `run`, `refresh_token`, `validate-cookie`, `generate-pac`, `authenticate`, `deauthenticate`, `doctor`, and `test-tunnel`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
+| **`jumphost` binary** (`src/main.rs`) | Multi-subcommand CLI including `run`, `refresh_token`, `validate-cookie`, `generate-pac`, `authenticate`, `deauthenticate`, `doctor`, `logs`, and `test-tunnel`. The supervisor in `run` orchestrates openconnect, ocproxy, the routing proxy, the PAC server, and the cookie monitor in a single process. Run as `processes.jumphost.exec` under devenv, or directly via `just start`. |
 | **`src/config.rs`** + **`src/config_file.rs`** | Shared configuration: constants, env-var helpers, and TOML config file integration. **Single source of truth** for the `PROXY_DOMAINS` / `DIRECT_DOMAINS` lists used by both the PAC generator and the routing proxy, default ports, and state-dir paths. All options can be overridden via a TOML config file at `$XDG_CONFIG_HOME/vpn-jumphost/config.toml`. Precedence: CLI flag > config file > compiled-in default. The "must stay in sync" rule between the routing proxy and the PAC file is structurally enforced — there is only one definition. |
 | **`src/vpn.rs`** | openconnect process management. Spawns `openconnect --protocol=f5 --cookie-on-stdin --script-tun --script "ocproxy -D ${SOCKS_PORT} -k ${OCPROXY_KEEPALIVE}" "$VPN_URL"` with the cookie file as stdin (no pipe), tracks the child PID, and forwards SIGTERM/SIGINT/SIGHUP. ocproxy is not invoked directly — openconnect spawns it as its `--script-tun` peer. `-g` is **never** passed to ocproxy. |
 | **`src/routing.rs`** | Routing proxy — SOCKS5 + HTTP CONNECT (ported from the previous standalone `routing-proxy/` crate, extended with HTTP CONNECT auto-detection). Always started; listens on `127.0.0.1:1081`. ocproxy stays on port 1080. Per-domain rules read from `PROXY_DOMAINS` / `DIRECT_DOMAINS` in `config.rs`. |
@@ -238,6 +238,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just refresh_token` | `./target/release/jumphost refresh_token` — forces a fresh MRHSession cookie fetch using already-configured credentials; never prompts for credentials |
 | `just validate-cookie` | `./target/release/jumphost validate-cookie` — probes the VPN endpoint with the current cookie. Exit 0 = valid, 1 = invalid, 2 = network error. |
 | `just doctor` | `./target/release/jumphost doctor` — health checks for config, cookie, routing proxy, VPN tunnel, PAC server (if enabled), and proxychains setup. Exit 0 when all critical checks pass. |
+| `just logs [ARGS]` | `./target/release/jumphost logs` — shows persisted jumphost logs. Auto-selects a loaded or active systemd user journal, the detached nohup log, or the macOS launchd log; pass `-f` to follow. |
 | `just test-tunnel [ARGS]` | `./target/release/jumphost test-tunnel` — SOCKS5 CONNECT probes through the routing proxy. Requires `jumphost run` to be up and `[probe].hosts` in config (or `-H host[:port]`). Pass `--retries N` to poll until the tunnel is ready. |
 | `just pac-gen` | `./target/release/jumphost generate-pac proxy.pac` |
 | `just pac-show` | Prints the generated PAC text to stdout |
@@ -432,6 +433,8 @@ A single-process supervisor for environments where `process-compose` isn't desir
 
 Logging uses `tracing` + `tracing-subscriber` (`src/logging.rs`) to stderr with a timestamped format. systemd captures stderr into the journal automatically. When stderr is a TTY (and `NO_COLOR` is unset), ANSI level colors are enabled; `FORCE_COLOR` overrides the TTY check, `NO_COLOR` disables it, and `RUST_LOG` (if set) overrides the `--verbose` flag entirely. The default filter also silences `chromiumoxide` below ERROR so the `WS Invalid message: data did not match any variant of untagged enum Message` noise (emitted on every Chromium CDP event the bundled protocol schema doesn't recognize) stays out of the log; `RUST_LOG=chromiumoxide=debug` (or any other directive) re-enables it. Under systemd/journald (no TTY) the formatter is plain so journalctl output isn't littered with ANSI escapes.
 
+`jumphost logs [-f] [-n LINES] [--source auto|systemd|detached|launchd]` is a convenience viewer for persisted logs. `auto` prefers the `vpn-jumphost.service` systemd user journal when the unit is loaded or active, then the `just start-detached` log at `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/jumphost.log`, then the macOS launchd package log at `/tmp/vpn-jumphost.log`; if no known log source exists but `journalctl` is available, it falls back to the user journal. The command delegates to `journalctl` or `tail`, so follow mode and journal formatting behave like the native tools.
+
 The sleep/wake watcher's OS support is selected at compile time via `#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]` in `src/sleepwake/mod.rs`. The Cargo deps (`zbus`, `objc2`, `block2`) are similarly cfg-gated so the build remains minimal on the unused platform.
 
 The old `-d/--daemonize` flag is **gone**. To run detached, use `just start-detached` (which wraps `nohup`) or a systemd user unit.
@@ -531,6 +534,8 @@ CLI overview: `-c/--config FILE`, `--no-headless`, `-v/--verbose`. The `-c` and 
 `authenticate` CLI: `--from-env` (read `VPN_USERNAME` / `VPN_PASSWORD` instead of prompting), `--no-headless`.
 
 `refresh_token` CLI: `--no-headless`. It requires already-configured credentials and never prompts for them.
+
+`logs` CLI: `-f/--follow`, `-n/--lines LINES` (default 100), `--source auto|systemd|detached|launchd`.
 
 `test-tunnel` CLI: `-H/--host HOST[:PORT]` (repeatable), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all`, `-q/--quiet`.
 

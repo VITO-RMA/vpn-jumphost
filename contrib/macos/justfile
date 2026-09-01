@@ -72,7 +72,7 @@ stop:
 
 # View logs.
 logs:
-    @tail -f /tmp/vpn-jumphost.log
+    @jumphost logs --source launchd -f
 
 clean:
     rm -rf {{ pkg_cache }}

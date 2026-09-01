@@ -14,7 +14,7 @@ post_install() {
   echo "       systemctl --user enable --now vpn-jumphost.service"
   echo ""
   echo "  3. View logs:"
-  echo "       journalctl --user -u vpn-jumphost.service -f"
+  echo "       jumphost logs -f"
   echo ""
   echo "  Documentation: /usr/share/doc/vpn-jumphost/"
   echo "══════════════════════════════════════════════════════════════"
