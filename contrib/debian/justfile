@@ -138,7 +138,7 @@ shell-systemd: build-package
                 "export JUMPHOST_TEST_RUNTIME_DIR=/run/user/$uid" \
                 "alias userctl=\"systemctl --user\"" \
                 "alias userjournal=\"journalctl --user\"" \
-                "alias logs=\"journalctl --user -u {{ service_name }} -n 100 --no-pager\"" \
+                "alias logs=\"jumphost logs --source systemd\"" \
                 "alias status=\"systemctl --user status {{ service_name }} --no-pager\"" \
                 "alias start-service=\"systemctl --user start {{ service_name }}\"" \
                 > /root/.bashrc; \
@@ -151,7 +151,7 @@ shell-systemd: build-package
     echo "  systemctl --user daemon-reload"
     echo "  systemctl --user start {{ service_name }}"
     echo "  systemctl --user status {{ service_name }} --no-pager"
-    echo "  journalctl --user -u {{ service_name }} -n 100 --no-pager"
+    echo "  jumphost logs --source systemd"
     echo "  vi ~/.config/vpn-jumphost/config.toml"
     echo "Root shell from another terminal: docker exec -it {{ systemd_container }} bash -l"
     echo "Cleanup from another shell: just clean-systemd-container"

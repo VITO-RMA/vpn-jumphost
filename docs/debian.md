@@ -22,7 +22,7 @@ The harness uses [`ubuntu:26.04`](https://documentation.ubuntu.com/release-notes
 systemctl --user daemon-reload
 systemctl --user start vpn-jumphost.service
 systemctl --user status vpn-jumphost.service --no-pager
-journalctl --user -u vpn-jumphost.service -n 100 --no-pager
+jumphost logs --source systemd
 ```
 
 The shell also defines short aliases: `start-service`, `status`, and `logs`. For a root shell into the same container, run `docker exec -it ubuntu-deb-systemd-shell bash -l` from another terminal. Stop and remove the shell container with `just clean-systemd-container`.
@@ -128,7 +128,7 @@ After installing the package:
 3. **View logs:**
 
    ```bash
-   journalctl --user -u vpn-jumphost.service -f
+   jumphost logs -f
    ```
 
 ## Systemd user unit

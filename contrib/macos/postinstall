@@ -81,7 +81,7 @@ echo "       Set alert style to Banners or Alerts."
 echo "       Test with:  jumphost test-notification"
 echo ""
 echo "  4. View logs:"
-echo "       tail -f /tmp/vpn-jumphost.log"
+echo "       jumphost logs -f"
 echo "══════════════════════════════════════════════════════════════"
 echo ""
 

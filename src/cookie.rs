@@ -379,6 +379,7 @@ async fn fetch_inner(
     let deadline = Instant::now() + max_wait;
     let mut warned_invalid = false;
     let mut notified_number: Option<String> = None;
+    let mut logged_number: Option<String> = None;
     let mut mfa_attempt_state = MfaAttemptState::Idle;
     let mut mfa_notification = NotificationGuard::new();
     let mut stuck_url_count: u32 = 0;
@@ -480,6 +481,13 @@ async fn fetch_inner(
                     }
                     mfa_attempt_state = MfaAttemptState::Number(num.clone());
 
+                    // Emit the number once per challenge so service logs show
+                    // the MFA approval code even when the browser is visible.
+                    if logged_number.as_deref() != Some(num) {
+                        info!(number = %num, "MFA: approve sign-in request with this number");
+                        logged_number = Some(num.clone());
+                    }
+
                     // Show the number via desktop notification once in
                     // headless mode. A headed browser already displays it.
                     if headless && notified_number.as_deref() != Some(num) {
@@ -488,7 +496,6 @@ async fn fetch_inner(
                         eprintln!("  ║  MFA: approve this number  ->  {num:>3}    ║");
                         eprintln!("  ╚═══════════════════════════════════════╝");
                         eprintln!();
-                        info!(number = %num, "MFA: approve sign-in request with this number");
                         mfa_notification.set(send_mfa_notification(num).await);
                         notified_number = Some(num.clone());
                     }

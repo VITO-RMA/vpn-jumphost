@@ -46,5 +46,5 @@ After installing the package:
 3. **View logs:**
 
    ```bash
-   journalctl --user -u vpn-jumphost.service -f
+   jumphost logs -f
    ```

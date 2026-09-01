@@ -79,7 +79,7 @@ Or, if `VPN_USERNAME` and `VPN_PASSWORD` are already set in the environment:
 jumphost authenticate --from-env
 ```
 
-This prompts for your username and password and saves them in the platform's native credential store (macOS Keychain / Linux Secret Service). To force a fresh VPN cookie later without entering or changing credentials, run `jumphost refresh_token`; if no complete credential source is available, it exits with a message directing you to `jumphost authenticate`. The browser-based cookie capture will use the configured credentials to pre-fill the SSO form. For Microsoft Authenticator number matching, approve the number shown in both the shell output and the desktop notification. The dedicated authentication browser always connects directly and ignores system PAC/proxy settings and `[domains]` routing rules, so authentication never depends on an existing VPN tunnel.
+This prompts for your username and password and saves them in the platform's native credential store (macOS Keychain / Linux Secret Service). To force a fresh VPN cookie later without entering or changing credentials, run `jumphost refresh_token`; if no complete credential source is available, it exits with a message directing you to `jumphost authenticate`. The browser-based cookie capture will use the configured credentials to pre-fill the SSO form. For Microsoft Authenticator number matching, approve the number shown in the browser or, for headless refreshes, in shell output and the desktop notification. The number-match code is also logged for `jumphost logs`. The dedicated authentication browser always connects directly and ignores system PAC/proxy settings and `[domains]` routing rules, so authentication never depends on an existing VPN tunnel.
 
 Automated authentication sends at most three Microsoft Authenticator push notifications during one `jumphost run` process. If none is completed, automatic authentication pauses and the supervisor remains running without a VPN tunnel so systemd/launchd cannot restart it into another notification loop. When you are present, run `jumphost authenticate`; the supervisor detects the new valid cookie and starts the tunnel. Explicitly restarting the service also resets the three-attempt allowance.
 
@@ -102,11 +102,14 @@ Verify the setup:
 ```bash
 jumphost doctor
 jumphost test-tunnel    # end-to-end SOCKS5 probe via :1081 (requires jumphost run)
+jumphost logs -f        # follow service logs
 ```
 
 `doctor` checks config, cookie, routing proxy (`:1081`), VPN tunnel (`:1080`), PAC server, and proxychains (for database clients). Exit 0 means all critical checks passed.
 
 `test-tunnel` issues SOCKS5 `CONNECT` probes through the routing proxy — configure `[probe].hosts` in your config file (see `docs/config.example.toml`) or pass `-H host[:port]`. Use it after start to confirm the tunnel actually routes traffic, not just that listeners are up.
+
+`logs` reads the systemd user journal when `vpn-jumphost.service` is installed or running, the `just start-detached` log at `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/jumphost.log`, or the macOS launchd log at `/tmp/vpn-jumphost.log`. Use `--source systemd|detached|launchd` to choose explicitly, or add `--auth`, `--mfa`, or `--errors` to filter the displayed lines.
 
 ## Point your tools at the proxy:
 
