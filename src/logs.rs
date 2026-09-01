@@ -186,16 +186,25 @@ fn run_command(program: &str, args: Vec<OsString>, filters: LogFilters) -> ExitC
 }
 
 fn filter_output(stdout: ChildStdout, filters: LogFilters) -> std::io::Result<()> {
-    let reader = std::io::BufReader::new(stdout);
+    let mut reader = std::io::BufReader::new(stdout);
     let mut out = std::io::stdout().lock();
-    for line in reader.lines() {
-        let line = line?;
-        if filters.matches(&line) {
-            writeln!(out, "{line}")?;
+    let mut line = Vec::new();
+    while reader.read_until(b'\n', &mut line)? != 0 {
+        let decoded = decode_log_line(&line);
+        if filters.matches(&decoded) {
+            write!(out, "{decoded}")?;
+            if !decoded.ends_with('\n') {
+                writeln!(out)?;
+            }
             out.flush()?;
         }
+        line.clear();
     }
     Ok(())
+}
+
+fn decode_log_line(line: &[u8]) -> std::borrow::Cow<'_, str> {
+    String::from_utf8_lossy(line)
 }
 
 fn status_to_exit_code(status: ExitStatus) -> ExitCode {
@@ -399,5 +408,11 @@ mod tests {
         assert!(filters.matches("INFO jumphost::cookie: cookie saved"));
         assert!(filters.matches("ERROR jumphost::vpn: openconnect failed"));
         assert!(!filters.matches("INFO jumphost::pac: PAC server listening"));
+    }
+
+    #[test]
+    fn log_line_decoding_tolerates_non_utf8_bytes() {
+        assert_eq!(decode_log_line(b"INFO ok\n"), "INFO ok\n");
+        assert_eq!(decode_log_line(b"WARN bad byte: \xff\n"), "WARN bad byte: \u{fffd}\n");
     }
 }
