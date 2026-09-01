@@ -109,7 +109,7 @@ jumphost logs -f        # follow service logs
 
 `test-tunnel` issues SOCKS5 `CONNECT` probes through the routing proxy — configure `[probe].hosts` in your config file (see `docs/config.example.toml`) or pass `-H host[:port]`. Use it after start to confirm the tunnel actually routes traffic, not just that listeners are up.
 
-`logs` reads the systemd user journal when `vpn-jumphost.service` is installed or running, the `just start-detached` log at `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/jumphost.log`, or the macOS launchd log at `/tmp/vpn-jumphost.log`. Use `--source systemd|detached|launchd` to choose explicitly.
+`logs` reads the systemd user journal when `vpn-jumphost.service` is installed or running, the `just start-detached` log at `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/jumphost.log`, or the macOS launchd log at `/tmp/vpn-jumphost.log`. Use `--source systemd|detached|launchd` to choose explicitly, or add `--auth`, `--mfa`, or `--errors` to filter the displayed lines.
 
 ## Point your tools at the proxy:
 

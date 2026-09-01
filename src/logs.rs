@@ -1,6 +1,7 @@
 use std::ffi::OsString;
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command as ProcessCommand, ExitCode, ExitStatus};
+use std::process::{ChildStdout, Command as ProcessCommand, ExitCode, ExitStatus, Stdio};
 
 use clap::{Args, ValueEnum};
 
@@ -23,6 +24,18 @@ pub struct LogsArgs {
     /// then the detached nohup log, then the macOS launchd log.
     #[arg(long, value_enum, default_value_t = LogSource::Auto)]
     source: LogSource,
+
+    /// Show authentication-related log lines.
+    #[arg(long)]
+    auth: bool,
+
+    /// Show MFA-related log lines, including Authenticator number-match codes.
+    #[arg(long)]
+    mfa: bool,
+
+    /// Show warning and error log lines.
+    #[arg(long)]
+    errors: bool,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +120,7 @@ fn run_systemd_logs(args: &LogsArgs) -> ExitCode {
         command_args.push(OsString::from("-f"));
     }
 
-    run_command("journalctl", command_args)
+    run_command("journalctl", command_args, LogFilters::from_args(args))
 }
 
 fn run_file_logs(args: &LogsArgs, path: &Path) -> ExitCode {
@@ -126,17 +139,63 @@ fn run_file_logs(args: &LogsArgs, path: &Path) -> ExitCode {
     }
     command_args.push(path.as_os_str().to_os_string());
 
-    run_command("tail", command_args)
+    run_command("tail", command_args, LogFilters::from_args(args))
 }
 
-fn run_command(program: &str, args: Vec<OsString>) -> ExitCode {
-    match ProcessCommand::new(program).args(args).status() {
-        Ok(status) => status_to_exit_code(status),
+fn run_command(program: &str, args: Vec<OsString>, filters: LogFilters) -> ExitCode {
+    if !filters.any() {
+        return match ProcessCommand::new(program).args(args).status() {
+            Ok(status) => status_to_exit_code(status),
+            Err(e) => {
+                eprintln!("jumphost logs: failed to run {program}: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
+    let child = ProcessCommand::new(program).args(args).stdout(Stdio::piped()).spawn();
+    let mut child = match child {
+        Ok(child) => child,
         Err(e) => {
             eprintln!("jumphost logs: failed to run {program}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let Some(stdout) = child.stdout.take() else {
+        eprintln!("jumphost logs: failed to capture {program} output");
+        let _ = child.kill();
+        let _ = child.wait();
+        return ExitCode::FAILURE;
+    };
+
+    if let Err(e) = filter_output(stdout, filters) {
+        eprintln!("jumphost logs: failed to filter {program} output: {e}");
+        let _ = child.kill();
+        let _ = child.wait();
+        return ExitCode::FAILURE;
+    }
+
+    match child.wait() {
+        Ok(status) => status_to_exit_code(status),
+        Err(e) => {
+            eprintln!("jumphost logs: failed to wait for {program}: {e}");
             ExitCode::FAILURE
         }
     }
+}
+
+fn filter_output(stdout: ChildStdout, filters: LogFilters) -> std::io::Result<()> {
+    let reader = std::io::BufReader::new(stdout);
+    let mut out = std::io::stdout().lock();
+    for line in reader.lines() {
+        let line = line?;
+        if filters.matches(&line) {
+            writeln!(out, "{line}")?;
+            out.flush()?;
+        }
+    }
+    Ok(())
 }
 
 fn status_to_exit_code(status: ExitStatus) -> ExitCode {
@@ -185,6 +244,56 @@ fn command_exists(program: &str) -> bool {
                 .any(|candidate| candidate.is_file())
         })
         .unwrap_or(false)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LogFilters {
+    auth: bool,
+    mfa: bool,
+    errors: bool,
+}
+
+impl LogFilters {
+    fn from_args(args: &LogsArgs) -> Self {
+        Self {
+            auth: args.auth,
+            mfa: args.mfa,
+            errors: args.errors,
+        }
+    }
+
+    fn any(self) -> bool {
+        self.auth || self.mfa || self.errors
+    }
+
+    fn matches(self, line: &str) -> bool {
+        if !self.any() {
+            return true;
+        }
+        let lower = line.to_ascii_lowercase();
+        (self.auth && contains_any(&lower, AUTH_PATTERNS))
+            || (self.mfa && contains_any(&lower, MFA_PATTERNS))
+            || (self.errors && contains_any(&lower, ERROR_PATTERNS))
+    }
+}
+
+const AUTH_PATTERNS: &[&str] = &[
+    "auth",
+    "browser login",
+    "credential",
+    "cookie",
+    "login",
+    "mrhsession",
+    "sso",
+    "token",
+];
+
+const MFA_PATTERNS: &[&str] = &["authenticator", "mfa", "number-match", "number="];
+
+const ERROR_PATTERNS: &[&str] = &["error ", "error=", "warn ", "warn=", "failed", "failure", "fatal", "panic"];
+
+fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| haystack.contains(needle))
 }
 
 #[cfg(test)]
@@ -237,5 +346,58 @@ mod tests {
         });
 
         assert_eq!(source, None);
+    }
+
+    #[test]
+    fn mfa_filter_matches_number_and_authenticator_lines() {
+        let filters = LogFilters {
+            auth: false,
+            mfa: true,
+            errors: false,
+        };
+
+        assert!(filters.matches("INFO jumphost::cookie: MFA: approve sign-in request with this number number=123"));
+        assert!(filters.matches("INFO jumphost::cookie: triggered Authenticator push"));
+        assert!(!filters.matches("INFO jumphost::vpn: VPN stopped"));
+    }
+
+    #[test]
+    fn auth_filter_matches_cookie_and_login_lines() {
+        let filters = LogFilters {
+            auth: true,
+            mfa: false,
+            errors: false,
+        };
+
+        assert!(filters.matches("INFO jumphost::cookie: captured valid MRHSession cookie"));
+        assert!(filters.matches("INFO jumphost::cookie: refreshing VPN cookie via browser login"));
+        assert!(!filters.matches("INFO jumphost::routing: routing proxy listening"));
+    }
+
+    #[test]
+    fn errors_filter_matches_warning_and_error_lines() {
+        let filters = LogFilters {
+            auth: false,
+            mfa: false,
+            errors: true,
+        };
+
+        assert!(filters.matches("2026-09-01 12:00:00.000  WARN jumphost::vpn: retrying"));
+        assert!(filters.matches("2026-09-01 12:00:00.000 ERROR jumphost: fatal error"));
+        assert!(filters.matches("cookie refresh failed; will retry"));
+        assert!(!filters.matches("INFO jumphost::vpn: VPN stopped"));
+    }
+
+    #[test]
+    fn combined_filters_match_any_selected_category() {
+        let filters = LogFilters {
+            auth: true,
+            mfa: false,
+            errors: true,
+        };
+
+        assert!(filters.matches("INFO jumphost::cookie: cookie saved"));
+        assert!(filters.matches("ERROR jumphost::vpn: openconnect failed"));
+        assert!(!filters.matches("INFO jumphost::pac: PAC server listening"));
     }
 }

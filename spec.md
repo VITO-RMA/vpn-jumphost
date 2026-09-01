@@ -433,7 +433,7 @@ A single-process supervisor for environments where `process-compose` isn't desir
 
 Logging uses `tracing` + `tracing-subscriber` (`src/logging.rs`) to stderr with a timestamped format. systemd captures stderr into the journal automatically. When stderr is a TTY (and `NO_COLOR` is unset), ANSI level colors are enabled; `FORCE_COLOR` overrides the TTY check, `NO_COLOR` disables it, and `RUST_LOG` (if set) overrides the `--verbose` flag entirely. The default filter also silences `chromiumoxide` below ERROR so the `WS Invalid message: data did not match any variant of untagged enum Message` noise (emitted on every Chromium CDP event the bundled protocol schema doesn't recognize) stays out of the log; `RUST_LOG=chromiumoxide=debug` (or any other directive) re-enables it. Under systemd/journald (no TTY) the formatter is plain so journalctl output isn't littered with ANSI escapes.
 
-`jumphost logs [-f] [-n LINES] [--source auto|systemd|detached|launchd]` is a convenience viewer for persisted logs. `auto` prefers the `vpn-jumphost.service` systemd user journal when the unit is loaded or active, then the `just start-detached` log at `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/jumphost.log`, then the macOS launchd package log at `/tmp/vpn-jumphost.log`; if no known log source exists but `journalctl` is available, it falls back to the user journal. The command delegates to `journalctl` or `tail`, so follow mode and journal formatting behave like the native tools.
+`jumphost logs [-f] [-n LINES] [--source auto|systemd|detached|launchd] [--auth] [--mfa] [--errors]` is a convenience viewer for persisted logs. `auto` prefers the `vpn-jumphost.service` systemd user journal when the unit is loaded or active, then the `just start-detached` log at `${XDG_STATE_HOME:-$HOME/.local/state}/vpn-jumphost/jumphost.log`, then the macOS launchd package log at `/tmp/vpn-jumphost.log`; if no known log source exists but `journalctl` is available, it falls back to the user journal. The command delegates to `journalctl` or `tail`, so follow mode and journal formatting behave like the native tools. When one or more filter flags are selected, the command streams native output through an in-process line filter: `--auth` keeps authentication/cookie/login lines, `--mfa` keeps MFA/Authenticator lines including number-match codes, and `--errors` keeps warning/error/failure lines. Multiple filters match any selected category.
 
 The sleep/wake watcher's OS support is selected at compile time via `#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]` in `src/sleepwake/mod.rs`. The Cargo deps (`zbus`, `objc2`, `block2`) are similarly cfg-gated so the build remains minimal on the unused platform.
 
@@ -535,7 +535,7 @@ CLI overview: `-c/--config FILE`, `--no-headless`, `-v/--verbose`. The `-c` and 
 
 `refresh_token` CLI: `--no-headless`. It requires already-configured credentials and never prompts for them.
 
-`logs` CLI: `-f/--follow`, `-n/--lines LINES` (default 100), `--source auto|systemd|detached|launchd`.
+`logs` CLI: `-f/--follow`, `-n/--lines LINES` (default 100), `--source auto|systemd|detached|launchd`, `--auth`, `--mfa`, `--errors`.
 
 `test-tunnel` CLI: `-H/--host HOST[:PORT]` (repeatable), `--timeout SECS`, `--retries N`, `--require-any`, `--require-all`, `-q/--quiet`.
 
