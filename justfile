@@ -201,6 +201,8 @@ bump_version NEW_VERSION:
     @echo "  ✓ Cargo.toml"
     sd '^Version: .+' 'Version: {{ NEW_VERSION }}' contrib/debian/control
     @echo "  ✓ contrib/debian/control"
+    sd '^pkgver=.*' 'pkgver={{ NEW_VERSION }}' contrib/archlinux/PKGBUILD
+    @echo "  ✓ contrib/archlinux/PKGBUILD"
     sd '^vpn-jumphost \([^)]+\)' 'vpn-jumphost ({{ NEW_VERSION }})' contrib/debian/changelog
     @echo "  ✓ contrib/debian/changelog"
     sd '<string>[^<]+</string>(\n\s+<key>CFBundleShortVersionString)' '<string>{{ NEW_VERSION }}</string>$1' contrib/macos/Info.plist

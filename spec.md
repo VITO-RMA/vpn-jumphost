@@ -251,6 +251,7 @@ Note: `jumphost run` invokes the same validate / fetch flow internally — there
 | `just proxychains-setup` | Copy `docs/proxychains.conf.example` to `~/.proxychains/proxychains.conf` if missing. |
 | `just pc -- COMMAND …` | Run any command through `scripts/proxychains-wrap.sh` → proxychains → `:1081`. |
 | `just dbeaver` | Launch DBeaver through proxychains (`DBEAVER_BIN` overrides auto-detect). |
+| `just bump_version VERSION` | Updates the application version in Cargo, Debian, Arch, macOS, and Nix packaging manifests, then refreshes `Cargo.lock`. |
 | `just current-version` | Prints the latest semver release tag from git |
 | `just release major\|minor\|patch` | Validates level / main / clean state, computes the next semver tag, then tags and pushes `main` + tag |
 

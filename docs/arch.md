@@ -17,6 +17,8 @@ makepkg -si
 
 `makepkg -si` builds the binary with `cargo build --profile dist --locked` and installs the resulting `target/dist/jumphost` via `pacman`. Shell completions for bash, zsh, and fish are generated at package time by running `jumphost generate-completions <shell>` and installed to the standard Arch completion directories.
 
+When changing the release version, run `just bump_version VERSION` from the repository root. This updates the Arch `pkgver` as well as the other packaging manifests before `makepkg` is run.
+
 ## Post-install setup
 
 After installing the package:
