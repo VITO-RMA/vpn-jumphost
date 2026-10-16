@@ -268,15 +268,15 @@ async fn cmd_authenticate(args: AuthenticateArgs) -> ExitCode {
             }
         }
     } else {
-        eprint!("VPN username: ");
+        eprint!("VPN e-mail: ");
         let mut username = String::new();
         if let Err(e) = std::io::stdin().read_line(&mut username) {
-            error!(error = %e, "failed to read username");
+            error!(error = %e, "failed to read e-mail");
             return ExitCode::FAILURE;
         }
         let username = username.trim().to_string();
         if username.is_empty() {
-            error!("username must not be empty");
+            error!("e-mail must not be empty");
             return ExitCode::FAILURE;
         }
 

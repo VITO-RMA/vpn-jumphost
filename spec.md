@@ -267,7 +267,7 @@ The GitHub Actions workflow in `.github/workflows/ci.yml` builds and tests on `u
 - Implemented using the [`keyring-core`](https://crates.io/crates/keyring-core) crate (v1) with platform-specific store backends:
   - **macOS:** `apple-native-keyring-store` — stores credentials in macOS Keychain.
   - **Linux:** `dbus-secret-service-keyring-store` — stores credentials via the Secret Service API (GNOME Keyring / KWallet).
-- `jumphost authenticate` prompts interactively for username and password, then writes them to the keyring.
+- `jumphost authenticate` prompts interactively for an e-mail address (`VPN e-mail: `) and password, then writes them to the keyring. The e-mail address is stored using the existing username credential key.
 - `jumphost authenticate --from-env` reads `VPN_USERNAME` and `VPN_PASSWORD` from the environment (both must be non-empty), stores them in the keyring, and skips the interactive prompt.
 - `jumphost refresh_token` requires a complete credential source resolved through the normal precedence (environment, keyring, then configured secret files), then forces a fresh cookie fetch without prompting or modifying stored credentials. If no credentials are available, it exits unsuccessfully and directs the user to `jumphost authenticate`.
 - `jumphost deauthenticate` removes stored credentials from the keyring and deletes the cookie file and browser profile.
