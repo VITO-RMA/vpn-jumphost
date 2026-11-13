@@ -50,6 +50,7 @@ pub enum CookieStatus {
 
 /// Read the cookie file and probe the VPN endpoint with it.
 pub async fn validate_file(cookie_file: &Path) -> CookieStatus {
+    info!(cookie_file = %cookie_file.display(), "validating cookie file");
     let cookie = match fs::read_to_string(cookie_file) {
         Ok(s) => s.trim().to_string(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
