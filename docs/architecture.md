@@ -96,6 +96,8 @@ sequenceDiagram
 
 ## Service supervision
 
+The [Fedora RPM](fedora.md) installs `/usr/bin/jumphost` and a systemd user unit for the same supervisor. The unit is enabled explicitly by each user and does not require `devenv` or a system-wide service.
+
 `devenv up` starts **one** process-compose process, `jumphost`, whose `exec` is `./target/release/jumphost -c docs/config.example.toml run`. The example config sets `serve_pac = true`. The binary itself:
 
 - Validates the cookie file synchronously at startup (reqwest GET of `<vpn_url>/vdesk/vpn/index.php3?outform=xml`, proxy discovery and redirects disabled — 2xx = valid, 3xx/404 = invalid, network error = unknown).
@@ -118,6 +120,10 @@ There is no shell wrapper and no `exec` dance — the binary owns the openconnec
 - **SSH:** Uses **`ProxyCommand`** with `nc -X 5 -x 127.0.0.1:1081` — see [`ssh.md`](ssh.md). Domains listed in `[domains].proxy` are routed through the VPN automatically.
 - **Database clients (DBeaver, psql):** JDBC and GUI clients do not speak SOCKS5; wrap the app with proxychains or Proxifier — see [`databases.md`](databases.md).
 - **VPN portal:** Always connects directly when listed in `[domains].direct`, so the VPN portal is reachable even when the tunnel is down.
+
+## Proposed NetworkManager integration
+
+The [NetworkManager feasibility study](networkmanager-feasibility.md) describes a possible Linux VPN plugin bridge with user-owned authentication and an OpenConnect/ocproxy worker. It preserves the proxy-based hostname routing described here; it does not make non-proxy applications use the VPN automatically. No plugin is implemented, and no-TUN activation and reauthentication still require compatibility testing against target NetworkManager releases.
 
 ## Related documentation
 

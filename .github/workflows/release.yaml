@@ -56,6 +56,53 @@ jobs:
           name: vpn-jumphost-deb
           path: "vpn-jumphost_*_amd64.deb"
 
+  build-rpm:
+    name: Build and test .rpm (Fedora ${{ matrix.fedora }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        fedora: [44, 45]
+    env:
+      FEDORA_VERSION: ${{ matrix.fedora }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build RPM in Fedora
+        run: |
+          mkdir -p rpm-output
+          docker run --rm -v "$PWD:/repo:ro" -v "$PWD/rpm-output:/out" -w /repo \
+            "fedora:$FEDORA_VERSION" bash -euc '
+              dnf -y install cargo-rpm-macros cmake dbus-devel gcc make pkgconf-pkg-config \
+                rpm-build systemd-rpm-macros tar gzip
+              bash contrib/fedora/build-rpm.sh /out
+            '
+
+      - name: Test RPM installation in a clean Fedora container
+        run: |
+          mkdir -p rpm-release
+          cp rpm-output/vpn-jumphost-[0-9]*.fc"$FEDORA_VERSION".x86_64.rpm rpm-release/
+          docker run --rm -v "$PWD/rpm-release:/packages:ro" "fedora:$FEDORA_VERSION" bash -euo pipefail -c '
+            dnf -y install /packages/*.rpm
+            rpm -V vpn-jumphost
+            jumphost --help | grep "^Usage:"
+            for tool in openconnect ocproxy chromium-browser; do command -v "$tool"; done
+            test -f /usr/share/vpn-jumphost/config.example.toml
+            test -s /usr/share/bash-completion/completions/jumphost
+            test -s /usr/share/zsh/site-functions/_jumphost
+            test -s /usr/share/fish/vendor_completions.d/jumphost.fish
+            systemd-analyze verify --man=no /usr/lib/systemd/user/vpn-jumphost.service
+            test "$(systemctl --global is-enabled vpn-jumphost.service || :)" = disabled
+          '
+          cp rpm-output/*.src.rpm rpm-release/
+
+      - name: Upload .rpm artefacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: vpn-jumphost-fedora-${{ matrix.fedora }}-rpm
+          path: rpm-release/*.rpm
+          if-no-files-found: error
+
   build-macos-pkg:
     name: Build .pkg (macOS)
     runs-on: macos-latest
@@ -93,15 +140,17 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-deb, build-macos-pkg]
+    needs: [build-deb, build-rpm, build-macos-pkg]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v5
 
       - name: Get tag name
         id: tag
-        run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: echo "tag_name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Download artefacts
         uses: actions/download-artifact@v5
@@ -116,6 +165,7 @@ jobs:
             --draft=false \
             --prerelease=false \
             artefacts/vpn-jumphost-deb/*.deb \
+            artefacts/vpn-jumphost-fedora-*-rpm/*.rpm \
             artefacts/vpn-jumphost-macos-pkg/*.pkg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

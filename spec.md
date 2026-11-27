@@ -390,6 +390,10 @@ Ctrl-C (or `just stop`) sends SIGTERM to the `jumphost` process; the supervisor 
 
 `just release major|minor|patch` validates the level, enforces branch=main + clean tree + local main in sync with origin, computes the next tag from the latest `v[0-9]*.[0-9]*.[0-9]*` tag (fallback `v0.0.0`), creates an annotated tag, and pushes both `main` and the tag.
 
+### Fedora RPM Packaging
+
+The release workflow builds and install-tests x86_64 RPMs on Fedora 44 and 45 and publishes the binary and source RPMs with tagged releases. `contrib/fedora/build-rpm.sh` takes the package version from `Cargo.toml` and vendors dependencies from `Cargo.lock` before invoking `rpmbuild`. The spec builds and tests offline and installs `/usr/bin/jumphost`, the systemd user unit, the example config under `/usr/share/vpn-jumphost/`, documentation, and Bash, Zsh, and Fish completions. DNF resolves OpenConnect, ocproxy, and Chromium from Fedora's repositories. Installation neither modifies the user's config nor enables the service; users configure and enable it explicitly. See [docs/fedora.md](docs/fedora.md) for details.
+
 ### Cookie Ingestion Flow
 
 The supervisor (`src/jumphost.rs` for `run`, `src/cookie.rs` for the primitives) reads the cookie from the configured cookie file path:
@@ -577,6 +581,10 @@ A `flake.nix` is also available at the project root. It builds the `jumphost` bi
 | Internal resources | Configured via `[domains].proxy` | Accessed through the tunnel |
 
 ---
+
+## Proposed integrations (not implemented)
+
+[NetworkManager VPN plugin feasibility](docs/networkmanager-feasibility.md) evaluates a Linux-only plugin bridge with user-session SSO/MFA and the existing OpenConnect/ocproxy routing data plane. The recommended first step is a no-TUN activation and reauthentication compatibility prototype on supported NetworkManager versions. This proposal does not change the current standalone runtime, configuration, or platform support. Retaining hostname routing means retaining proxy-aware client usage; a conventional TUN VPN would have different routing semantics.
 
 ## Open Questions / Ambiguities
 

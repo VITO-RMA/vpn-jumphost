@@ -8,7 +8,7 @@ A userspace VPN proxy that connects to an F5 VPN via `openconnect` + `ocproxy` a
 - A proxy pac will be hosted at `http://127.0.0.1:8091`
   
 ## Installation
-Build the packages from source or use the prebuilt release artifacts for ubuntu/mac
+Build from source or download a package for Ubuntu, Fedora, or macOS from [GitHub Releases](https://github.com/VITO-RMA/vpn-jumphost/releases).
 ### devenv
 
 Install devenv per [devenv.sh/getting-started](https://devenv.sh/getting-started/), then from the project directory:
@@ -18,7 +18,7 @@ devenv shell   # provides openconnect, ocproxy, just, Rust toolchain, chromium (
 just start
 ```
 
-Normal development uses `cargo build --release` (or `just build`), producing `target/release/jumphost` without cross-crate LTO for fast relinks. Distribution packaging uses `cargo build --profile dist`, producing `target/dist/jumphost` with thin LTO. Both profiles use the platform's default linker.
+Normal development uses `cargo build --release` (or `just build`), producing `target/release/jumphost` without cross-crate LTO for fast relinks. Most distribution packages use `cargo build --profile dist`, producing `target/dist/jumphost` with thin LTO. The Fedora RPM uses Fedora's Cargo RPM macros instead.
 
 On macOS, Chromium is not available from nixpkgs — install Google Chrome or Chromium system-wide.
 
@@ -46,6 +46,16 @@ sudo apt-get install -f   # resolve dependencies (openconnect, ocproxy, chromium
 ```
 
 See [docs/debian.md](docs/debian.md) for the full build steps and systemd service setup.
+
+### Fedora
+
+On Fedora 44 or 45 (x86_64), download the binary RPM matching your Fedora release (`.fc44.x86_64.rpm` or `.fc45.x86_64.rpm`) from GitHub Releases, then install it with DNF:
+
+```bash
+sudo dnf install ./vpn-jumphost-[0-9]*.fc*.x86_64.rpm
+```
+
+The RPM installs `/usr/bin/jumphost`, the systemd user unit, and `/usr/share/vpn-jumphost/config.example.toml`. See [docs/fedora.md](docs/fedora.md) for setup and building from source.
 
 ### macOS
 prerequisites: install the required dependencies with Homebrew:
@@ -132,3 +142,7 @@ Configure your browser to use the proxy pac at `http://127.0.0.1:8091` for autom
 Or use the routing proxy directly at `socks5h://127.0.0.1:1081` for applications that do not support PAC files to let the jumphost handle all routing logic.
 
 For GUI database clients (DBeaver, DataGrip), see [docs/databases.md](docs/databases.md).
+
+## Design studies
+
+- [NetworkManager VPN plugin feasibility](docs/networkmanager-feasibility.md) — proposed Linux integration using unmodified OpenConnect, user-session SSO/MFA, and the existing routing proxy. This is a design study, not an implemented plugin; applications would still need proxy/PAC configuration.
