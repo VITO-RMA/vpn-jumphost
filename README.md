@@ -9,6 +9,11 @@ A userspace VPN proxy that connects to an F5 VPN via `openconnect` + `ocproxy` a
   
 ## Installation
 Build from source or download a package for Ubuntu, Fedora, or macOS from [GitHub Releases](https://github.com/VITO-RMA/vpn-jumphost/releases).
+
+### Nix flake
+
+From the project directory, run `nix build .#default`, then use `./result/bin/jumphost`. The flake supports x86-64 and ARM64 Linux and Apple Silicon macOS; pinned nixpkgs 26.11 no longer supports Intel macOS. The package puts `openconnect`, `ocproxy`, and (on Linux) Chromium on the binary's runtime `PATH`. On macOS, install Chrome or Chromium separately.
+
 ### devenv
 
 Install devenv per [devenv.sh/getting-started](https://devenv.sh/getting-started/), then from the project directory:

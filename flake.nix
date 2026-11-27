@@ -2,7 +2,7 @@
   description = "VPN jumphost: OpenConnect+ocproxy supervisor, routing SOCKS5 proxy, PAC server, and F5 cookie management";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.11";
   };
 
   outputs =
@@ -11,7 +11,6 @@
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -51,6 +50,8 @@
             ];
 
             buildInputs = [
+              # The nixpkgs Cargo hook requires a packaged AWS-LC for aws-lc-sys.
+              pkgs.aws-lc
               # Runtime dependencies — the supervisor spawns
               # openconnect with --script-tun, which in turn exec's
               # ocproxy. Cookie refresh drives Chromium via CDP.
@@ -58,18 +59,9 @@
               pkgs.ocproxy
               pkgs.dbus
             ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
               pkgs.chromium
-            ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (
-              with pkgs.darwin.apple_sdk.frameworks;
-              [
-                AppKit
-                Foundation
-                Security
-                SystemConfiguration
-              ]
-            );
+            ];
 
             # Put runtime dependencies on PATH so the supervisor can
             # find them. On macOS, Chromium is not available from
@@ -81,7 +73,7 @@
                   pkgs.openconnect
                   pkgs.ocproxy
                 ]
-                ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+                ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
                   pkgs.chromium
                 ];
               in
@@ -98,7 +90,7 @@
             meta = {
               description = "VPN jumphost: OpenConnect+ocproxy supervisor with routing SOCKS5 proxy, PAC server, and cookie management";
               mainProgram = "jumphost";
-              platforms = pkgs.lib.platforms.linux ++ pkgs.lib.platforms.darwin;
+              platforms = supportedSystems;
             };
           };
         in
